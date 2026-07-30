@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -59,10 +59,28 @@ jobs:
         shell: powershell
         run: |
           $outputRoot = Join-Path $env:RUNNER_TEMP 'workspace-widget-build'
-          .\scripts\Build-WorkspaceWidget.ps1 `
+          $buildOutput = @(
+            .\scripts\Build-WorkspaceWidget.ps1 `
             -Version 0.1.0 `
             -OutputRoot $outputRoot `
             -SkipInstaller
-          .\scripts\Test-WorkspaceWidgetRelease.ps1 `
+          )
+          $buildResult = ($buildOutput -join [Environment]::NewLine) |
+            ConvertFrom-Json
+          if (-not [bool]$buildResult.success) {
+            throw 'The development stage build did not report success.'
+          }
+          $verificationOutput = @(
+            .\scripts\Test-WorkspaceWidgetRelease.ps1 `
             -Version 0.1.0 `
             -OutputRoot $outputRoot
+          )
+          $verificationResult = (
+            $verificationOutput -join [Environment]::NewLine
+          ) | ConvertFrom-Json
+          if (-not [bool]$verificationResult.success) {
+            $verificationResult | ConvertTo-Json -Depth 8
+            throw 'The development stage verification failed.'
+          }
+          $verificationResult | ConvertTo-Json -Depth 8
+          $global:LASTEXITCODE = 0
