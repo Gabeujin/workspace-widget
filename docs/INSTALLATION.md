@@ -2,9 +2,10 @@
 
 Workspace Widget supports 64-bit Windows 11 build 22000 or newer only.
 
-The supported public installation is the Microsoft Store listing. Windows
-installs and services the Store-signed MSIX under its managed package location.
-No administrator permission is expected for a normal Store install.
+No certified Microsoft Store listing is available yet. After certification,
+the supported public installation will be the Microsoft Store listing. Windows
+will install and service the Store-signed MSIX under its managed package
+location. No administrator permission is expected for a normal Store install.
 
 The application package includes a pinned Node.js runtime and npm for local
 services that the user explicitly configures. It does not install Node.js
@@ -16,10 +17,14 @@ Runtime settings and shortcuts are kept separately:
 %LOCALAPPDATA%\WorkspaceServiceWidget
 ```
 
-Store updates preserve this folder. Uninstall removes the package and its
-startup-task registration but intentionally leaves user settings in place.
+Store updates are designed to preserve this folder. Uninstall is expected to
+remove the package and its startup-task registration while intentionally
+leaving user settings in place. These lifecycle behaviors remain subject to
+the independent-device and Store-certification gates.
 
-## Install
+## Install after Store certification
+
+When the certified listing becomes available:
 
 1. Open the certified Workspace Widget listing in Microsoft Store.
 2. Verify the publisher shown in the listing.
@@ -30,18 +35,19 @@ startup-task registration but intentionally leaves user settings in place.
 The app should show the Workspace logo, fade into the main window, and appear
 as `WorkspaceWidget.exe` in Task Manager. It does not open a console window.
 
-## Upgrade
+## Upgrade after Store certification
 
-Microsoft Store services newer package versions. A package update replaces
-immutable application files but does not replace `state.json`, registered
-shortcuts, window geometry, theme, or media settings.
+Microsoft Store will service newer package versions. The release checklist
+requires proving that a package update replaces immutable application files
+without replacing `state.json`, registered shortcuts, window geometry, theme,
+or media settings.
 
-## Uninstall
+## Uninstall after Store certification
 
 Use Windows Settings → Apps → Installed apps → Workspace Widget → Uninstall.
-User state remains under `%LOCALAPPDATA%\WorkspaceServiceWidget` for a future
-reinstall. Removing that retained state is a separate manual data-deletion
-decision.
+The release checklist requires proving that user state remains under
+`%LOCALAPPDATA%\WorkspaceServiceWidget` for a future reinstall. Removing that
+retained state is a separate manual data-deletion decision.
 
 ## Development and migration builds
 

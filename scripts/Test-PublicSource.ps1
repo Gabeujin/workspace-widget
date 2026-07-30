@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [string]$ProjectRoot
+  [string]$ProjectRoot,
+  [string]$LocalDenylistPath
 )
 
 Set-StrictMode -Version Latest
@@ -13,6 +14,24 @@ $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 $gitDirectory = Join-Path $ProjectRoot '.git'
 if (-not (Test-Path -LiteralPath $gitDirectory)) {
   throw 'Public-source verification requires a Git checkout.'
+}
+if ([string]::IsNullOrWhiteSpace($LocalDenylistPath)) {
+  $LocalDenylistPath = Join-Path `
+    $ProjectRoot `
+    '.public-source-denylist.local.txt'
+}
+$LocalDenylistPath = [System.IO.Path]::GetFullPath($LocalDenylistPath)
+$localPrivateTerms = @()
+if (Test-Path -LiteralPath $LocalDenylistPath -PathType Leaf) {
+  $localPrivateTerms = @(
+    Get-Content -LiteralPath $LocalDenylistPath |
+      ForEach-Object { ([string]$_).Trim() } |
+      Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_) -and
+        -not $_.StartsWith('#')
+      } |
+      Sort-Object -Unique
+  )
 }
 
 $findings = [System.Collections.Generic.List[object]]::new()
@@ -123,8 +142,13 @@ $forbiddenExtensions = @(
 )
 
 $textExtensions = @(
+  '.bat',
   '.cmd',
   '.cs',
+  '.css',
+  '.csv',
+  '.htm',
+  '.html',
   '.iss',
   '.js',
   '.json',
@@ -132,10 +156,25 @@ $textExtensions = @(
   '.mjs',
   '.cjs',
   '.ps1',
+  '.psd1',
+  '.psm1',
+  '.sh',
+  '.svg',
   '.txt',
+  '.vbs',
   '.xml',
   '.yaml',
   '.yml'
+)
+$knownTextFileNames = @(
+  '.editorconfig',
+  '.gitattributes',
+  '.gitignore',
+  'CODEOWNERS',
+  'Dockerfile',
+  'LICENSE',
+  'Makefile',
+  'NOTICE'
 )
 $sensitivePatterns = [ordered]@{
   privateKey = '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'
@@ -149,17 +188,31 @@ $sensitivePatterns = [ordered]@{
   apiKeyLiteral = '(?i)\bapi[_-]?key\s*[:=]\s*[''"][^''"]{12,}[''"]'
   emailAddress = '(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b'
   fixedWindowsUserPath = '(?i)\b[A-Z]:\\Users\\(?!<)'
-  privateWorkspacePath = '(?i)\bD:\\workspace\\'
+  sourceCheckoutPath = '(?i)\b[A-Z]:\\(?:workspace|source|repos|dev)\\'
+  localBuildPath = '(?i)\b[A-Z]:\\(?:WWBuild|WorkspaceWidgetBuilds)\\'
   signedMediaQuery = '(?i)[?&](?:token|signature|sig|hmac)=[^&\s)''"]{8,}'
-  internalTerms = '(?i)\b(?:LEGOGov|Tibero|WebSquare|LocalDock)\b|KTC Board|Work Archive|Business Platform'
-  developmentEnvironment = '(?i)codex-runtimes|Codex-Change-Backups|Codex Security|OpenAI Codex for Administrator'
-  privateExampleVideo = '\bdhfS-JlD3iM\b'
-  privateEvidenceReference = '(?i)\bquality/'
+  agentBackupPath = '(?i)\bCodex' + '-Change' + '-Backups\b'
 }
 
 foreach ($trackedFile in $trackedFiles) {
   $relativePath = $trackedFile.Replace('\', '/')
   $relativeLower = $relativePath.ToLowerInvariant()
+
+  foreach ($localPrivateTerm in $localPrivateTerms) {
+    if (
+      $relativePath.IndexOf(
+        $localPrivateTerm,
+        [System.StringComparison]::OrdinalIgnoreCase
+      ) -lt 0
+    ) {
+      continue
+    }
+    Add-PublicSourceFinding `
+      -Rule 'local-private-path-term' `
+      -Path $relativePath `
+      -Detail 'A tracked path matches a maintainer-local denylist term.'
+    break
+  }
 
   foreach ($prefix in $forbiddenPrefixes) {
     if ($relativeLower.StartsWith($prefix)) {
@@ -184,6 +237,7 @@ foreach ($trackedFile in $trackedFiles) {
     $fileName -eq '.env' -or
     ($fileName.StartsWith('.env.') -and $fileName -ne '.env.example') -or
     $fileName -eq '.localdock.json' -or
+    $fileName -eq '.public-source-denylist.local.txt' -or
     $fileName -eq 'state.json' -or
     $fileName -eq 'state.json.previous' -or
     $fileName -eq 'design-qa.md'
@@ -204,24 +258,15 @@ foreach ($trackedFile in $trackedFiles) {
       -Detail 'Only the placeholder Store identity example may be tracked.'
   }
 
-  if ($extension -notin $textExtensions) {
+  if (
+    $extension -notin $textExtensions -and
+    $fileName -notin $knownTextFileNames
+  ) {
     continue
   }
 
   $content = Get-TrackedFileText -RelativePath $relativePath
   foreach ($pattern in $sensitivePatterns.GetEnumerator()) {
-    if (
-      $relativePath -eq 'scripts/Test-PublicSource.ps1' -and
-      $pattern.Key -in @(
-        'internalTerms',
-        'developmentEnvironment',
-        'privateExampleVideo',
-        'privateEvidenceReference'
-      )
-    ) {
-      continue
-    }
-
     $match = [regex]::Match($content, [string]$pattern.Value)
     if (-not $match.Success) {
       continue
@@ -237,6 +282,29 @@ foreach ($trackedFile in $trackedFiles) {
       -Path $relativePath `
       -Line $line `
       -Detail 'Sensitive or private content pattern matched.'
+  }
+
+  foreach ($localPrivateTerm in $localPrivateTerms) {
+    $match = [regex]::Match(
+      $content,
+      [regex]::Escape($localPrivateTerm),
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    if (-not $match.Success) {
+      continue
+    }
+    $line = 1
+    if ($match.Index -gt 0) {
+      $line = (
+        $content.Substring(0, $match.Index) -split "\r?\n"
+      ).Count
+    }
+    Add-PublicSourceFinding `
+      -Rule 'local-private-term' `
+      -Path $relativePath `
+      -Line $line `
+      -Detail 'A maintainer-local denylist term matched.'
+    break
   }
 }
 
@@ -284,18 +352,57 @@ if (
   }
 }
 
-$commitEmails = @(
-  & git -C $ProjectRoot log --all --format='%ae%n%ce' 2>$null |
-    ForEach-Object { [string]$_ } |
-    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-    Sort-Object -Unique
+$commitEmailOutput = @(
+  & git -C $ProjectRoot log --all --format='%ae%n%ce' 2>&1
 )
+$commitHistoryExitCode = $LASTEXITCODE
+$commitEmails = @()
+if ($commitHistoryExitCode -ne 0) {
+  Add-PublicSourceFinding `
+    -Rule 'git-history-enumeration-failed' `
+    -Path '.git' `
+    -Detail 'Git commit metadata could not be enumerated.'
+} else {
+  $commitEmails = @(
+    $commitEmailOutput |
+      ForEach-Object { [string]$_ } |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+      Sort-Object -Unique
+  )
+}
+if ($commitEmails.Count -eq 0) {
+  Add-PublicSourceFinding `
+    -Rule 'empty-git-history' `
+    -Path '.git' `
+    -Detail 'No commit email metadata was found.'
+}
 foreach ($commitEmail in $commitEmails) {
-  if ($commitEmail -match '(?i)@ktc\.re\.kr$') {
+  if (
+    $commitEmail -notmatch (
+      '(?i)^(?:(?:\d+\+)?[A-Z0-9-]+(?:\[bot\])?' +
+      '@users\.noreply\.github\.com|' +
+      'noreply@github\.com)$'
+    )
+  ) {
     Add-PublicSourceFinding `
-      -Rule 'company-email-in-history' `
+      -Rule 'unexpected-public-commit-email' `
       -Path '.git' `
-      -Detail 'A commit author or committer email uses a company domain.'
+      -Detail 'A commit email is not a GitHub noreply address.'
+  }
+  foreach ($localPrivateTerm in $localPrivateTerms) {
+    if (
+      $commitEmail.IndexOf(
+        $localPrivateTerm,
+        [System.StringComparison]::OrdinalIgnoreCase
+      ) -lt 0
+    ) {
+      continue
+    }
+    Add-PublicSourceFinding `
+      -Rule 'local-private-email-term' `
+      -Path '.git' `
+      -Detail 'A commit email matches a maintainer-local denylist term.'
+    break
   }
 }
 
@@ -303,6 +410,7 @@ $result = [pscustomobject][ordered]@{
   success = $findings.Count -eq 0
   trackedFileCount = $trackedFiles.Count
   commitEmailCount = $commitEmails.Count
+  localDenylistTermCount = $localPrivateTerms.Count
   defaultTemplatesMatch = $defaultTemplatesMatch
   findingCount = $findings.Count
   findings = @($findings)

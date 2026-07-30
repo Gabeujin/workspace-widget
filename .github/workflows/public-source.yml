@@ -24,6 +24,11 @@ jobs:
         run: |
           .\scripts\Test-PublicSource.ps1
 
+      - name: Test public-source fail-closed controls
+        shell: powershell
+        run: |
+          .\scripts\Test-PublicSourceNegativeControls.ps1
+
       - name: Parse PowerShell source
         shell: powershell
         run: |
