@@ -5,8 +5,8 @@ Candidate: 0.1.0, Windows 11 x64
 
 ## Decision
 
-**Current-device engineering controls passed; the final negative review is in
-progress and official Microsoft Store submission remains on hold.**
+**The final local negative review passed at 9.9/10 with P0, P1, and P2 findings
+at zero; official Microsoft Store submission remains on hold.**
 
 The x64 full-trust WPF host, allowlisted runtime stage, Store manifest
 template, package receipt, package-aware startup task, clean public default,

@@ -26,6 +26,8 @@ permission to distribute the unsigned artifacts.
 | Public web | Pass | Product, Privacy, Support, and source URLs returned HTTPS 200; lifecycle-qualified privacy copy was deployed by Pages workflow run `30536510159` |
 | Rendered web interaction | Pass with tool limitation | Product content rendered without console warnings/errors; English/Korean locale, light/dark theme, Privacy, and Support navigation responded correctly. The selected browser surface did not expose a screenshot API, so committed native captures remain the visual evidence |
 | GitHub repository controls | Maintainer-verified | Authenticated API checks showed dependency alerts, automated security updates, secret scanning, push protection, and private vulnerability reporting enabled; open Dependabot and secret-scanning alerts: 0 |
+| Independent negative review | Pass | P0: 0, P1: 0, P2: 0; engineering quality: 9.9/10 |
+| Pushed clean-checkout CI | Pass | Push run `30537628477` and pull-request run `30537632365` passed on implementation commit `36bedf1` |
 
 The public-source scanner has no path-specific self-exemption. Its tracked-text
 coverage includes scripts, VBS, web formats, PowerShell data/modules,
