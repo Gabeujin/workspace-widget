@@ -27,23 +27,21 @@ could change.
 1. Register the Microsoft Store Individual developer account, reserve the MSIX
    product name, and copy the exact Partner Center identity Name, Publisher,
    and PublisherDisplayName values.
-2. Commit the reviewed source to a clean Git checkout. The current copied
-   workspace has no source revision that can be bound to a Store upload.
-3. Build the exact Store MSIX with `-StoreSubmission`; verify package allowlist,
+2. Build the exact Store MSIX with `-StoreSubmission`; verify package allowlist,
    dependency versions, hashes, notices, absence of private state, and the
    source-revision receipt.
-4. Verify first launch, update, sign-in startup, tray restore, shortcuts, media
+3. Verify first launch, update, sign-in startup, tray restore, shortcuts, media
    fallback, Node startup, state migration, and uninstall on an independent
    supported Windows 11 device when one is available. The current-device
    installed candidate has already passed the corresponding integration suite.
-5. Optionally rehearse with the Windows App Certification Kit. Partner Center
+4. Optionally rehearse with the Windows App Certification Kit. Partner Center
    certification is the authoritative Store gate.
-6. Publish `PRIVACY.md` at a stable HTTPS URL, verify the support contact, and
+5. Publish `PRIVACY.md` at a stable HTTPS URL, verify the support contact, and
    complete Partner Center listing, age rating, `runFullTrust` justification,
    and product/trademark review.
-7. Repeat secret, dependency, malware, and source security scans against the
+6. Repeat secret, dependency, malware, and source security scans against the
    exact committed Store candidate and uploaded MSIX.
-8. Pass Partner Center certification and verify the resulting Store-signed
+7. Pass Partner Center certification and verify the resulting Store-signed
    installation.
 
 Until these gates pass, generated MSIX and legacy installer files are

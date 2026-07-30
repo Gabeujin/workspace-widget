@@ -24,7 +24,7 @@ certification.
 - Read-only MSIX/receipt verifier, privacy policy, strict stage-manifest
   allowlist validation, clean-source binding, and deterministic-toolchain gate.
 - Package-aware `windows.startupTask` integration for Store installations.
-- Pinned Node.js 24.18.0 LTS Windows x64 runtime and npm in the installer for
+- Pinned Node.js 24.18.1 LTS Windows x64 runtime and npm in the installer for
   explicitly configured offline local services.
 - Exact runtime content manifest and checksum validation for the bundled
   Node.js distribution.
@@ -47,6 +47,7 @@ certification.
   the bundled npm runner.
 - The responsive toolbar switches to icon-only controls below 500 px, and
   shortcut cards and toolbar controls expose visible keyboard focus.
+- Updated the bundled Node.js runtime to the 24.18.1 security release.
 
 ### Fixed
 
@@ -69,6 +70,12 @@ certification.
 - Public HTTPS raster media is downloaded through an explicit redirect,
   address, size, content-type, and decoded-dimension boundary before local
   rendering.
+- Remote HTTPS assets connect directly to a DNS-validated public IP while TLS
+  validates the original host name, preventing a later DNS answer from
+  redirecting the request into private address space.
+- Special-purpose IPv4 and IPv6 ranges, excessive DNS candidates, ambiguous
+  HTTP framing, oversized chunk metadata, and responses that exceed the shared
+  ten-second deadline are rejected before remote media is cached.
 - Direct remote video streams are rejected because the Windows media pipeline
   would otherwise issue a second request outside the bounded downloader. Local
   video and restricted YouTube hover playback remain supported.

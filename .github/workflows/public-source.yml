@@ -15,6 +15,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify tracked public source
         shell: powershell
@@ -46,6 +49,11 @@ jobs:
             $invalid | ConvertTo-Json -Depth 5
             throw 'PowerShell parsing failed.'
           }
+
+      - name: Test remote media network boundary
+        shell: powershell
+        run: |
+          .\scripts\Test-WorkspaceWidgetNetworkBoundary.ps1
 
       - name: Build allowlisted development stage
         shell: powershell

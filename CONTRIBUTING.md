@@ -42,7 +42,7 @@ docs\                User, media, installation, and deployment documentation
 installer\           Inno Setup definition
 native\              Native x64 host source
 packaging\msix\       Microsoft Store manifest and identity templates
-quality\fixtures\    Test-only fixtures
+tests\fixtures\      Test-only fixtures
 scripts\              Build, dependency, install, startup, autostart, and test scripts
 ```
 

@@ -28,6 +28,9 @@ $nodeRestoreScript = Join-Path `
 $releaseVerifier = Join-Path `
   $ProjectRoot `
   'scripts\Test-WorkspaceWidgetRelease.ps1'
+$networkBoundaryTest = Join-Path `
+  $ProjectRoot `
+  'scripts\Test-WorkspaceWidgetNetworkBoundary.ps1'
 $iconBuilder = Join-Path $ProjectRoot 'scripts\New-WorkspaceWidgetIcon.ps1'
 $baseBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'
 $msixBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'
@@ -104,6 +107,7 @@ $requiredFiles = @(
   $installScript,
   $nodeRestoreScript,
   $releaseVerifier,
+  $networkBoundaryTest,
   $iconBuilder,
   $baseBuilder,
   $msixBuilder,
@@ -813,10 +817,24 @@ $checks = [ordered]@{
   remoteNetworkBoundary = $appContent -match 'function Get-RemoteRasterMediaSource' -and
     $appContent -match "-MaximumBytes 10485760" -and
     $appContent -match "-CacheDirectoryName 'MediaCache'" -and
-    $appContent -match 'Test-PublicRemoteIconUri -Uri \(\[uri\]\$Source\)' -and
     $appContent -match 'if \(\$kind -eq ''video''\) \{\s*return \$false' -and
-    $appContent -match '\$script:httpClientHandler\.AllowAutoRedirect = \$false' -and
-    $appContent -match 'HttpCompletionOption\]::ResponseHeadersRead'
+    $appContent -match 'public static class WorkspaceWidgetPinnedHttpsClient' -and
+    $appContent -match 'new TcpClient\(address\.AddressFamily\)' -and
+    $appContent -match 'new SslStream\(' -and
+    $appContent -match 'ValidateRemoteCertificate\(' -and
+    $appContent -match 'tls\.BeginAuthenticateAsClient\(' -and
+    $appContent -match 'tls\.EndAuthenticateAsClient\(' -and
+    $appContent -match 'TlsHandshakeTimesOutForProbe' -and
+    $appContent -match 'SslProtocols\.None' -and
+    $appContent -match 'MaximumChunkMetadataBytes = 65536' -and
+    $appContent -match 'function Resolve-PublicRemoteIconAddresses' -and
+    $appContent -match 'function Select-PublicRemoteIconAddresses' -and
+    $appContent -match 'function Invoke-PinnedRemoteAssetRequest' -and
+    $appContent -match 'Resolve-PublicRemoteIconAddresses -Uri \$Uri' -and
+    $appContent -match 'MaximumCount 4' -and
+    $appContent -match 'AddSeconds\(10\)' -and
+    $appContent -match 'The remote asset request timed out' -and
+    $appContent -match '\[switch\]\$NetworkBoundaryProbe'
   webViewIsolation = $appContent -match 'IsWebMessageEnabled = \$false' -and
     $appContent -match 'AreHostObjectsAllowed = \$false' -and
     $appContent -match 'add_NewWindowRequested' -and

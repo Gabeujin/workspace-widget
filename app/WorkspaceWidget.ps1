@@ -10,6 +10,8 @@ param(
   [string]$ShortcutProbePath,
   [switch]$GeometryProbe,
   [switch]$MediaProbe,
+  [string]$RemoteAssetProbeSource,
+  [switch]$NetworkBoundaryProbe,
   [double]$GeometryProbeLeft = 1000000,
   [double]$GeometryProbeTop = 1000000,
   [double]$GeometryProbeWidth = 430,
@@ -477,6 +479,887 @@ Add-Type -AssemblyName System.Xaml
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Net.Http
 Add-Type -AssemblyName System.Windows.Forms
+
+if ($null -eq ('WorkspaceWidgetPinnedHttpsClient' -as [type])) {
+  $pinnedHttpsSource = @'
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using System.Threading;
+
+public sealed class WorkspaceWidgetPinnedHttpsResponse
+{
+    public int StatusCode { get; set; }
+    public IDictionary<string, string> Headers { get; set; }
+    public byte[] Body { get; set; }
+    public string RemoteAddress { get; set; }
+}
+
+public static class WorkspaceWidgetPinnedHttpsClient
+{
+    private const int MaximumHeaderBytes = 65536;
+    private const int MaximumChunkMetadataBytes = 65536;
+
+    public static WorkspaceWidgetPinnedHttpsResponse Get(
+        Uri uri,
+        IPAddress address,
+        long maximumBytes,
+        int connectTimeoutMilliseconds,
+        int timeoutMilliseconds)
+    {
+        if (uri == null)
+        {
+            throw new ArgumentNullException("uri");
+        }
+        if (address == null)
+        {
+            throw new ArgumentNullException("address");
+        }
+        if (!String.Equals(
+                uri.Scheme,
+                Uri.UriSchemeHttps,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Only HTTPS is supported.");
+        }
+        if (maximumBytes < 1 || maximumBytes > 67108864)
+        {
+            throw new ArgumentOutOfRangeException("maximumBytes");
+        }
+        if (timeoutMilliseconds < 1000 || timeoutMilliseconds > 60000)
+        {
+            throw new ArgumentOutOfRangeException("timeoutMilliseconds");
+        }
+        if (
+            connectTimeoutMilliseconds < 250 ||
+            connectTimeoutMilliseconds > timeoutMilliseconds)
+        {
+            throw new ArgumentOutOfRangeException(
+                "connectTimeoutMilliseconds");
+        }
+
+        Stopwatch requestTimer = Stopwatch.StartNew();
+        TcpClient client = new TcpClient(address.AddressFamily);
+        try
+        {
+            IAsyncResult connect = client.BeginConnect(
+                address,
+                uri.Port,
+                null,
+                null);
+            try
+            {
+                int connectWait = Math.Min(
+                    connectTimeoutMilliseconds,
+                    GetRemainingMilliseconds(
+                        requestTimer,
+                        timeoutMilliseconds));
+                if (!connect.AsyncWaitHandle.WaitOne(connectWait))
+                {
+                    throw new TimeoutException(
+                        "The pinned HTTPS connection timed out.");
+                }
+                client.EndConnect(connect);
+            }
+            finally
+            {
+                connect.AsyncWaitHandle.Close();
+            }
+
+            client.NoDelay = true;
+            NetworkStream network = client.GetStream();
+            int networkTimeout = GetRemainingMilliseconds(
+                requestTimer,
+                timeoutMilliseconds);
+            network.ReadTimeout = networkTimeout;
+            network.WriteTimeout = networkTimeout;
+            using (
+                SslStream tls = new SslStream(
+                    network,
+                    false,
+                    delegate(
+                        object sender,
+                        X509Certificate certificate,
+                        X509Chain chain,
+                        SslPolicyErrors sslPolicyErrors)
+                    {
+                        return ValidateRemoteCertificate(
+                            chain,
+                            sslPolicyErrors);
+                    }))
+            {
+                int tlsTimeout = GetRemainingMilliseconds(
+                    requestTimer,
+                    timeoutMilliseconds);
+                tls.ReadTimeout = tlsTimeout;
+                tls.WriteTimeout = tlsTimeout;
+                IAsyncResult authenticate =
+                    tls.BeginAuthenticateAsClient(
+                    uri.IdnHost,
+                    null,
+                    SslProtocols.None,
+                    true,
+                    null,
+                    null);
+                try
+                {
+                    int authenticateWait = GetRemainingMilliseconds(
+                        requestTimer,
+                        timeoutMilliseconds);
+                    if (!authenticate.AsyncWaitHandle.WaitOne(authenticateWait))
+                    {
+                        throw new TimeoutException(
+                            "The pinned HTTPS TLS handshake timed out.");
+                    }
+                    tls.EndAuthenticateAsClient(authenticate);
+                }
+                finally
+                {
+                    authenticate.AsyncWaitHandle.Close();
+                }
+
+                string path = uri.PathAndQuery;
+                if (String.IsNullOrEmpty(path))
+                {
+                    path = "/";
+                }
+                if (path.IndexOf('\r') >= 0 || path.IndexOf('\n') >= 0)
+                {
+                    throw new InvalidOperationException(
+                        "The HTTPS request path is invalid.");
+                }
+
+                string host = uri.IdnHost;
+                if (uri.HostNameType == UriHostNameType.IPv6)
+                {
+                    host = "[" + host + "]";
+                }
+                if (!uri.IsDefaultPort)
+                {
+                    host += ":" + uri.Port.ToString(
+                        CultureInfo.InvariantCulture);
+                }
+
+                string request =
+                    "GET " + path + " HTTP/1.1\r\n" +
+                    "Host: " + host + "\r\n" +
+                    "User-Agent: WorkspaceWidget/0.1\r\n" +
+                    "Accept: image/png,image/jpeg,image/gif,image/bmp," +
+                    "image/x-icon,image/vnd.microsoft.icon,image/svg+xml\r\n" +
+                    "Accept-Encoding: identity\r\n" +
+                    "Connection: close\r\n\r\n";
+                byte[] requestBytes = Encoding.ASCII.GetBytes(request);
+                tls.WriteTimeout = GetRemainingMilliseconds(
+                    requestTimer,
+                    timeoutMilliseconds);
+                tls.Write(requestBytes, 0, requestBytes.Length);
+                tls.Flush();
+
+                WorkspaceWidgetPinnedHttpsResponse response =
+                    ReadResponse(
+                        tls,
+                        maximumBytes,
+                        requestTimer,
+                        timeoutMilliseconds);
+                response.RemoteAddress = address.ToString();
+                return response;
+            }
+        }
+        finally
+        {
+            client.Close();
+        }
+    }
+
+    public static WorkspaceWidgetPinnedHttpsResponse ParseResponseForProbe(
+        byte[] responseBytes,
+        long maximumBytes,
+        int timeoutMilliseconds)
+    {
+        if (responseBytes == null)
+        {
+            throw new ArgumentNullException("responseBytes");
+        }
+        using (MemoryStream stream = new MemoryStream(responseBytes, false))
+        {
+            return ReadResponse(
+                stream,
+                maximumBytes,
+                Stopwatch.StartNew(),
+                timeoutMilliseconds);
+        }
+    }
+
+    public static bool DeadlineExpiresForProbe(int timeoutMilliseconds)
+    {
+        Stopwatch timer = Stopwatch.StartNew();
+        Thread.Sleep(timeoutMilliseconds + 25);
+        try
+        {
+            GetRemainingMilliseconds(timer, timeoutMilliseconds);
+            return false;
+        }
+        catch (TimeoutException)
+        {
+            return true;
+        }
+    }
+
+    public static bool TlsHandshakeTimesOutForProbe(
+        int timeoutMilliseconds)
+    {
+        TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+        Thread serverThread = null;
+        listener.Start();
+        try
+        {
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            serverThread = new Thread(
+                delegate()
+                {
+                    try
+                    {
+                        using (
+                            TcpClient accepted =
+                                listener.AcceptTcpClient())
+                        {
+                            Thread.Sleep(timeoutMilliseconds + 500);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                });
+            serverThread.IsBackground = true;
+            serverThread.Start();
+
+            Stopwatch timer = Stopwatch.StartNew();
+            try
+            {
+                Get(
+                    new Uri(
+                        "https://localhost:" +
+                        port.ToString(CultureInfo.InvariantCulture) +
+                        "/"),
+                    IPAddress.Loopback,
+                    16,
+                    250,
+                    timeoutMilliseconds);
+                return false;
+            }
+            catch (TimeoutException)
+            {
+                return timer.ElapsedMilliseconds <=
+                    timeoutMilliseconds + 500;
+            }
+        }
+        finally
+        {
+            listener.Stop();
+            if (serverThread != null)
+            {
+                serverThread.Join(2000);
+            }
+        }
+    }
+
+    public static bool EvaluateCertificatePolicyForProbe(
+        SslPolicyErrors sslPolicyErrors,
+        X509ChainStatusFlags[] chainStatuses)
+    {
+        return EvaluateCertificatePolicy(
+            sslPolicyErrors,
+            chainStatuses);
+    }
+
+    private static bool ValidateRemoteCertificate(
+        X509Chain chain,
+        SslPolicyErrors sslPolicyErrors)
+    {
+        X509ChainStatusFlags[] statuses = null;
+        if (chain != null)
+        {
+            statuses = new X509ChainStatusFlags[chain.ChainStatus.Length];
+            for (int index = 0; index < chain.ChainStatus.Length; index++)
+            {
+                statuses[index] = chain.ChainStatus[index].Status;
+            }
+        }
+        return EvaluateCertificatePolicy(
+            sslPolicyErrors,
+            statuses);
+    }
+
+    private static bool EvaluateCertificatePolicy(
+        SslPolicyErrors sslPolicyErrors,
+        X509ChainStatusFlags[] chainStatuses)
+    {
+        if (sslPolicyErrors == SslPolicyErrors.None)
+        {
+            return true;
+        }
+        if (
+            sslPolicyErrors !=
+            SslPolicyErrors.RemoteCertificateChainErrors ||
+            chainStatuses == null)
+        {
+            return false;
+        }
+
+        bool sawUnavailableRevocationStatus = false;
+        X509ChainStatusFlags unavailableRevocationFlags =
+            X509ChainStatusFlags.RevocationStatusUnknown |
+            X509ChainStatusFlags.OfflineRevocation;
+        foreach (X509ChainStatusFlags status in chainStatuses)
+        {
+            if (status == X509ChainStatusFlags.NoError)
+            {
+                continue;
+            }
+            if (
+                (status & unavailableRevocationFlags) != 0 &&
+                (status & ~unavailableRevocationFlags) == 0)
+            {
+                sawUnavailableRevocationStatus = true;
+                continue;
+            }
+            return false;
+        }
+        return sawUnavailableRevocationStatus;
+    }
+
+    private static int GetRemainingMilliseconds(
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        long remaining =
+            (long)timeoutMilliseconds - requestTimer.ElapsedMilliseconds;
+        if (remaining <= 0)
+        {
+            throw new TimeoutException(
+                "The remote asset request timed out.");
+        }
+        return (int)Math.Min(Int32.MaxValue, remaining);
+    }
+
+    private static void PrepareRead(
+        Stream stream,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        if (stream.CanTimeout)
+        {
+            stream.ReadTimeout = GetRemainingMilliseconds(
+                requestTimer,
+                timeoutMilliseconds);
+        }
+    }
+
+    private static WorkspaceWidgetPinnedHttpsResponse ReadResponse(
+        Stream stream,
+        long maximumBytes,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        string headerText = ReadHeaders(
+            stream,
+            requestTimer,
+            timeoutMilliseconds);
+        string[] lines = headerText.Split(
+            new string[] { "\r\n" },
+            StringSplitOptions.None);
+        if (lines.Length == 0)
+        {
+            throw new InvalidDataException("The HTTPS response is empty.");
+        }
+
+        string[] statusParts = lines[0].Split(new char[] { ' ' }, 3);
+        int statusCode;
+        if (
+            !(
+                lines[0].StartsWith(
+                    "HTTP/1.0 ",
+                    StringComparison.Ordinal) ||
+                lines[0].StartsWith(
+                    "HTTP/1.1 ",
+                    StringComparison.Ordinal)
+            ) ||
+            statusParts.Length < 2 ||
+            !Int32.TryParse(
+                statusParts[1],
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out statusCode) ||
+            statusCode < 100 ||
+            statusCode > 599)
+        {
+            throw new InvalidDataException(
+                "The HTTPS response status line is invalid.");
+        }
+
+        Dictionary<string, string> headers =
+            new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
+        for (int index = 1; index < lines.Length; index++)
+        {
+            if (
+                lines[index].Length == 0 ||
+                Char.IsWhiteSpace(lines[index][0]))
+            {
+                throw new InvalidDataException(
+                    "The HTTPS response header format is invalid.");
+            }
+            int separator = lines[index].IndexOf(':');
+            if (separator <= 0)
+            {
+                throw new InvalidDataException(
+                    "The HTTPS response header format is invalid.");
+            }
+            string name = lines[index].Substring(0, separator).Trim();
+            string value = lines[index].Substring(separator + 1).Trim();
+            if (
+                !IsValidHeaderName(name) ||
+                !IsValidHeaderValue(value))
+            {
+                throw new InvalidDataException(
+                    "The HTTPS response header name or value is invalid.");
+            }
+            string existing;
+            if (headers.TryGetValue(name, out existing))
+            {
+                if (
+                    String.Equals(
+                        name,
+                        "Content-Length",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(
+                        name,
+                        "Transfer-Encoding",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(
+                        name,
+                        "Content-Type",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(
+                        name,
+                        "Content-Encoding",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(
+                        name,
+                        "Location",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        "A security-sensitive HTTPS header was repeated.");
+                }
+                headers[name] = existing + "," + value;
+            }
+            else
+            {
+                headers[name] = value;
+            }
+        }
+
+        string contentEncoding;
+        if (
+            headers.TryGetValue("Content-Encoding", out contentEncoding) &&
+            !String.IsNullOrWhiteSpace(contentEncoding) &&
+            !String.Equals(
+                contentEncoding.Trim(),
+                "identity",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Compressed remote assets are not accepted.");
+        }
+
+        byte[] body = new byte[0];
+        if (statusCode >= 200 && statusCode < 300)
+        {
+            string transferEncoding;
+            bool hasTransferEncoding = headers.TryGetValue(
+                "Transfer-Encoding",
+                out transferEncoding);
+            if (hasTransferEncoding)
+            {
+                if (
+                    !String.Equals(
+                        transferEncoding.Trim(),
+                        "chunked",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    headers.ContainsKey("Content-Length"))
+                {
+                    throw new InvalidDataException(
+                        "The HTTPS response framing is ambiguous or unsupported.");
+                }
+                body = ReadChunkedBody(
+                    stream,
+                    maximumBytes,
+                    requestTimer,
+                    timeoutMilliseconds);
+            }
+            else
+            {
+                string contentLengthText;
+                long contentLength;
+                if (headers.TryGetValue(
+                        "Content-Length",
+                        out contentLengthText))
+                {
+                    if (
+                        !Int64.TryParse(
+                            contentLengthText,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out contentLength) ||
+                        contentLength < 0)
+                    {
+                        throw new InvalidDataException(
+                            "The HTTPS Content-Length is invalid.");
+                    }
+                    if (contentLength > maximumBytes)
+                    {
+                        throw new InvalidDataException(
+                            "The remote asset exceeds its size limit.");
+                    }
+                    body = ReadExactBody(
+                        stream,
+                        contentLength,
+                        maximumBytes,
+                        requestTimer,
+                        timeoutMilliseconds);
+                }
+                else
+                {
+                    body = ReadUntilEnd(
+                        stream,
+                        maximumBytes,
+                        requestTimer,
+                        timeoutMilliseconds);
+                }
+            }
+        }
+
+        return new WorkspaceWidgetPinnedHttpsResponse
+        {
+            StatusCode = statusCode,
+            Headers = headers,
+            Body = body
+        };
+    }
+
+    private static bool IsValidHeaderName(string name)
+    {
+        if (String.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+        foreach (char character in name)
+        {
+            if (
+                (character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') ||
+                (character >= '0' && character <= '9') ||
+                "!#$%&'*+-.^_`|~".IndexOf(character) >= 0)
+            {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private static bool IsValidHeaderValue(string value)
+    {
+        foreach (char character in value)
+        {
+            if (
+                (character < 32 && character != '\t') ||
+                character == 127)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static string ReadHeaders(
+        Stream stream,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        byte[] marker = new byte[] { 13, 10, 13, 10 };
+        int matched = 0;
+        using (MemoryStream headers = new MemoryStream())
+        {
+            while (headers.Length < MaximumHeaderBytes)
+            {
+                PrepareRead(
+                    stream,
+                    requestTimer,
+                    timeoutMilliseconds);
+                int value = stream.ReadByte();
+                if (value < 0)
+                {
+                    throw new EndOfStreamException(
+                        "The HTTPS response headers ended unexpectedly.");
+                }
+                headers.WriteByte((byte)value);
+                if (value == marker[matched])
+                {
+                    matched++;
+                    if (matched == marker.Length)
+                    {
+                        byte[] bytes = headers.ToArray();
+                        return Encoding.GetEncoding(28591).GetString(
+                            bytes,
+                            0,
+                            bytes.Length - marker.Length);
+                    }
+                }
+                else
+                {
+                    matched = value == marker[0] ? 1 : 0;
+                }
+            }
+        }
+        throw new InvalidDataException(
+            "The HTTPS response headers are too large.");
+    }
+
+    private static byte[] ReadExactBody(
+        Stream stream,
+        long length,
+        long maximumBytes,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        using (MemoryStream body = new MemoryStream())
+        {
+            CopyExact(
+                stream,
+                body,
+                length,
+                maximumBytes,
+                requestTimer,
+                timeoutMilliseconds);
+            return body.ToArray();
+        }
+    }
+
+    private static byte[] ReadUntilEnd(
+        Stream stream,
+        long maximumBytes,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        using (MemoryStream body = new MemoryStream())
+        {
+            byte[] buffer = new byte[16384];
+            int read;
+            while (true)
+            {
+                PrepareRead(
+                    stream,
+                    requestTimer,
+                    timeoutMilliseconds);
+                read = stream.Read(buffer, 0, buffer.Length);
+                if (read <= 0)
+                {
+                    break;
+                }
+                if (body.Length + read > maximumBytes)
+                {
+                    throw new InvalidDataException(
+                        "The remote asset exceeds its size limit.");
+                }
+                body.Write(buffer, 0, read);
+            }
+            return body.ToArray();
+        }
+    }
+
+    private static byte[] ReadChunkedBody(
+        Stream stream,
+        long maximumBytes,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        using (MemoryStream body = new MemoryStream())
+        {
+            long metadataBytes = 0;
+            while (true)
+            {
+                string sizeLine = ReadAsciiLine(
+                    stream,
+                    8192,
+                    requestTimer,
+                    timeoutMilliseconds);
+                AddChunkMetadata(
+                    ref metadataBytes,
+                    sizeLine.Length + 2);
+                int extension = sizeLine.IndexOf(';');
+                if (extension >= 0)
+                {
+                    sizeLine = sizeLine.Substring(0, extension);
+                }
+                long chunkSize;
+                if (
+                    !Int64.TryParse(
+                        sizeLine.Trim(),
+                        NumberStyles.HexNumber,
+                        CultureInfo.InvariantCulture,
+                        out chunkSize) ||
+                    chunkSize < 0)
+                {
+                    throw new InvalidDataException(
+                        "The chunked response is invalid.");
+                }
+                if (chunkSize == 0)
+                {
+                    while (true)
+                    {
+                        string trailer = ReadAsciiLine(
+                            stream,
+                            8192,
+                            requestTimer,
+                            timeoutMilliseconds);
+                        AddChunkMetadata(
+                            ref metadataBytes,
+                            trailer.Length + 2);
+                        if (trailer.Length == 0)
+                        {
+                            break;
+                        }
+                    }
+                    return body.ToArray();
+                }
+                CopyExact(
+                    stream,
+                    body,
+                    chunkSize,
+                    maximumBytes,
+                    requestTimer,
+                    timeoutMilliseconds);
+                PrepareRead(
+                    stream,
+                    requestTimer,
+                    timeoutMilliseconds);
+                if (stream.ReadByte() != 13)
+                {
+                    throw new InvalidDataException(
+                        "The chunk delimiter is invalid.");
+                }
+                PrepareRead(
+                    stream,
+                    requestTimer,
+                    timeoutMilliseconds);
+                if (stream.ReadByte() != 10)
+                {
+                    throw new InvalidDataException(
+                        "The chunk delimiter is invalid.");
+                }
+                AddChunkMetadata(ref metadataBytes, 2);
+            }
+        }
+    }
+
+    private static void AddChunkMetadata(
+        ref long metadataBytes,
+        long addedBytes)
+    {
+        metadataBytes += addedBytes;
+        if (metadataBytes > MaximumChunkMetadataBytes)
+        {
+            throw new InvalidDataException(
+                "The chunked response metadata is too large.");
+        }
+    }
+
+    private static void CopyExact(
+        Stream input,
+        MemoryStream output,
+        long length,
+        long maximumBytes,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        if (output.Length + length > maximumBytes)
+        {
+            throw new InvalidDataException(
+                "The remote asset exceeds its size limit.");
+        }
+        byte[] buffer = new byte[16384];
+        long remaining = length;
+        while (remaining > 0)
+        {
+            int requested = (int)Math.Min(buffer.Length, remaining);
+            PrepareRead(
+                input,
+                requestTimer,
+                timeoutMilliseconds);
+            int read = input.Read(buffer, 0, requested);
+            if (read <= 0)
+            {
+                throw new EndOfStreamException(
+                    "The remote asset ended unexpectedly.");
+            }
+            output.Write(buffer, 0, read);
+            remaining -= read;
+        }
+    }
+
+    private static string ReadAsciiLine(
+        Stream stream,
+        int maximumBytes,
+        Stopwatch requestTimer,
+        int timeoutMilliseconds)
+    {
+        using (MemoryStream line = new MemoryStream())
+        {
+            while (line.Length < maximumBytes)
+            {
+                PrepareRead(
+                    stream,
+                    requestTimer,
+                    timeoutMilliseconds);
+                int value = stream.ReadByte();
+                if (value < 0)
+                {
+                    throw new EndOfStreamException(
+                        "The chunked response ended unexpectedly.");
+                }
+                if (value == 13)
+                {
+                    PrepareRead(
+                        stream,
+                        requestTimer,
+                        timeoutMilliseconds);
+                    if (stream.ReadByte() != 10)
+                    {
+                        throw new InvalidDataException(
+                            "The response line delimiter is invalid.");
+                    }
+                    return Encoding.ASCII.GetString(line.ToArray());
+                }
+                line.WriteByte((byte)value);
+            }
+        }
+        throw new InvalidDataException(
+            "The response line is too large.");
+    }
+}
+'@
+  Add-Type -TypeDefinition $pinnedHttpsSource -Language CSharp
+}
 
 $script:webView2Available = $false
 $script:webView2LoadError = $null
@@ -969,7 +1852,11 @@ $showEvent = $null
 $readyEvent = $null
 $presentedEvent = $null
 $script:readySignalSent = $false
-if (-not $StartupProbe) {
+if (
+  -not $StartupProbe -and
+  [string]::IsNullOrWhiteSpace($RemoteAssetProbeSource) -and
+  -not $NetworkBoundaryProbe
+) {
   $showEvent = [System.Threading.EventWaitHandle]::new(
     $false,
     [System.Threading.EventResetMode]::AutoReset,
@@ -3462,21 +4349,141 @@ function Test-PublicRemoteIconAddress {
     $Address.AddressFamily -eq
     [System.Net.Sockets.AddressFamily]::InterNetworkV6
   ) {
-    return -not (
-      $Address.Equals([System.Net.IPAddress]::IPv6Any) -or
+    if (
+      ($bytes[0] -band 0xE0) -ne 0x20 -or
       $Address.IsIPv6LinkLocal -or
       $Address.IsIPv6SiteLocal -or
-      $Address.IsIPv6Multicast -or
-      (($bytes[0] -band 0xFE) -eq 0xFC) -or
+      $Address.IsIPv6Multicast
+    ) {
+      return $false
+    }
+    return -not (
+      (
+        $bytes[0] -eq 0x20 -and
+        $bytes[1] -eq 0x01 -and
+        $bytes[2] -le 0x01
+      ) -or
       (
         $bytes[0] -eq 0x20 -and
         $bytes[1] -eq 0x01 -and
         $bytes[2] -eq 0x0D -and
         $bytes[3] -eq 0xB8
+      ) -or
+      ($bytes[0] -eq 0x20 -and $bytes[1] -eq 0x02) -or
+      ($bytes[0] -eq 0x3F -and $bytes[1] -eq 0xFE) -or
+      (
+        $bytes[0] -eq 0x3F -and
+        $bytes[1] -eq 0xFF -and
+        ($bytes[2] -band 0xF0) -eq 0
       )
     )
   }
   return $false
+}
+
+function Select-PublicRemoteIconAddresses {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Net.IPAddress[]]$Addresses,
+    [ValidateRange(1, 8)]
+    [int]$MaximumCount = 4
+  )
+
+  if (
+    $Addresses.Count -eq 0 -or
+    @(
+      $Addresses |
+        Where-Object { -not (Test-PublicRemoteIconAddress -Address $_) }
+    ).Count -gt 0
+  ) {
+    return @()
+  }
+
+  $ordered = @(
+    $Addresses |
+      Sort-Object {
+        if (
+          $_.AddressFamily -eq
+          [System.Net.Sockets.AddressFamily]::InterNetwork
+        ) {
+          0
+        } else {
+          1
+        }
+      }
+  )
+  $selected = [System.Collections.Generic.List[System.Net.IPAddress]]::new()
+  $seen = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase
+  )
+  foreach ($address in $ordered) {
+    if ($seen.Add($address.ToString())) {
+      $selected.Add($address)
+    }
+    if ($selected.Count -ge $MaximumCount) {
+      break
+    }
+  }
+  return @($selected.ToArray())
+}
+
+function Get-RemoteAssetRemainingMilliseconds {
+  param(
+    [Parameter(Mandatory = $true)]
+    [datetime]$DeadlineUtc
+  )
+
+  $remaining = [long][Math]::Floor(
+    ($DeadlineUtc - [DateTime]::UtcNow).TotalMilliseconds
+  )
+  if ($remaining -lt 1) {
+    throw 'The remote asset request timed out.'
+  }
+  return [int][Math]::Min($remaining, 60000)
+}
+
+function Resolve-PublicRemoteIconAddresses {
+  param(
+    [Parameter(Mandatory = $true)]
+    [uri]$Uri,
+    [datetime]$DeadlineUtc = ([DateTime]::UtcNow.AddSeconds(5)),
+    [switch]$ThrowOnFailure
+  )
+
+  if (
+    $Uri.Scheme -ne 'https' -or
+    $Uri.AbsoluteUri.Length -gt 2048 -or
+    -not [string]::IsNullOrWhiteSpace($Uri.UserInfo) -or
+    [string]::IsNullOrWhiteSpace($Uri.IdnHost)
+  ) {
+    if ($ThrowOnFailure) {
+      throw 'The remote asset URL must be public HTTPS without user info.'
+    }
+    return @()
+  }
+  try {
+    $remaining = Get-RemoteAssetRemainingMilliseconds `
+      -DeadlineUtc $DeadlineUtc
+    $dnsTask = [System.Net.Dns]::GetHostAddressesAsync($Uri.IdnHost)
+    if (-not $dnsTask.Wait($remaining)) {
+      throw 'The remote asset DNS lookup timed out.'
+    }
+    $addresses = @($dnsTask.GetAwaiter().GetResult())
+    $selected = @(
+      Select-PublicRemoteIconAddresses `
+        -Addresses $addresses `
+        -MaximumCount 4
+    )
+    if ($selected.Count -eq 0) {
+      throw 'The remote asset URL must resolve only to public IP addresses.'
+    }
+    return $selected
+  } catch {
+    if ($ThrowOnFailure) {
+      throw
+    }
+    return @()
+  }
 }
 
 function Test-PublicRemoteIconUri {
@@ -3485,26 +4492,50 @@ function Test-PublicRemoteIconUri {
     [uri]$Uri
   )
 
-  if (
-    $Uri.Scheme -ne 'https' -or
-    $Uri.AbsoluteUri.Length -gt 2048 -or
-    -not [string]::IsNullOrWhiteSpace($Uri.UserInfo) -or
-    [string]::IsNullOrWhiteSpace($Uri.DnsSafeHost)
-  ) {
-    return $false
+  return @(
+    Resolve-PublicRemoteIconAddresses -Uri $Uri
+  ).Count -gt 0
+}
+
+function Invoke-PinnedRemoteAssetRequest {
+  param(
+    [Parameter(Mandatory = $true)]
+    [uri]$Uri,
+    [Parameter(Mandatory = $true)]
+    [long]$MaximumBytes,
+    [Parameter(Mandatory = $true)]
+    [datetime]$DeadlineUtc
+  )
+
+  $addresses = @(
+    Resolve-PublicRemoteIconAddresses `
+      -Uri $Uri `
+      -DeadlineUtc $DeadlineUtc `
+      -ThrowOnFailure
+  )
+  $lastError = $null
+  foreach ($address in $addresses) {
+    try {
+      $remaining = Get-RemoteAssetRemainingMilliseconds `
+        -DeadlineUtc $DeadlineUtc
+      if ($remaining -lt 1000) {
+        throw 'The remote asset request timed out.'
+      }
+      return [WorkspaceWidgetPinnedHttpsClient]::Get(
+        $Uri,
+        $address,
+        $MaximumBytes,
+        [Math]::Min(2000, $remaining),
+        $remaining
+      )
+    } catch {
+      $lastError = $_.Exception
+    }
   }
-  try {
-    $addresses = @([System.Net.Dns]::GetHostAddresses($Uri.DnsSafeHost))
-    return (
-      $addresses.Count -gt 0 -and
-      @(
-        $addresses |
-          Where-Object { -not (Test-PublicRemoteIconAddress -Address $_) }
-      ).Count -eq 0
-    )
-  } catch {
-    return $false
+  if ($null -eq $lastError) {
+    throw 'The pinned HTTPS request could not select an address.'
   }
+  throw "The pinned HTTPS request failed. $($lastError.Message)"
 }
 
 function Test-SafeSvgIcon {
@@ -3614,57 +4645,60 @@ function Get-RemoteCustomIconAsset {
   } catch {
     throw "$AssetLabel URL is not valid."
   }
-  $handler = [System.Net.Http.HttpClientHandler]::new()
-  $handler.AllowAutoRedirect = $false
-  $client = [System.Net.Http.HttpClient]::new($handler)
-  $client.Timeout = [TimeSpan]::FromSeconds(10)
-  $client.DefaultRequestHeaders.UserAgent.ParseAdd('WorkspaceWidget/0.1')
+  $requestDeadlineUtc = [DateTime]::UtcNow.AddSeconds(10)
   $response = $null
-  try {
-    for ($redirect = 0; $redirect -le 3; $redirect++) {
-      if (-not (Test-PublicRemoteIconUri -Uri $currentUri)) {
-        throw "$AssetLabel URL must resolve to a public HTTPS address."
+  for ($redirect = 0; $redirect -le 3; $redirect++) {
+    try {
+      $response = Invoke-PinnedRemoteAssetRequest `
+        -Uri $currentUri `
+        -MaximumBytes $maximumBytes `
+        -DeadlineUtc $requestDeadlineUtc
+    } catch {
+      if (
+        $_.Exception.Message -match
+        'The remote asset exceeds its size limit\.'
+      ) {
+        throw "$AssetLabel is larger than the $maximumSizeLabel limit."
       }
-      $request = [System.Net.Http.HttpRequestMessage]::new(
-        [System.Net.Http.HttpMethod]::Get,
-        $currentUri
-      )
+      throw
+    }
+    $statusCode = [int]$response.StatusCode
+    if ($statusCode -ge 300 -and $statusCode -lt 400) {
+      if (-not $response.Headers.ContainsKey('Location')) {
+        throw "$AssetLabel redirect did not include a destination."
+      }
+      $locationText = [string]$response.Headers['Location']
       try {
-        $response = $client.SendAsync(
-          $request,
-          [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
-        ).GetAwaiter().GetResult()
-      } finally {
-        $request.Dispose()
+        $location = [uri]::new(
+          $locationText,
+          [System.UriKind]::RelativeOrAbsolute
+        )
+      } catch {
+        throw "$AssetLabel redirect destination is invalid."
       }
-      $statusCode = [int]$response.StatusCode
-      if ($statusCode -ge 300 -and $statusCode -lt 400) {
-        $location = $response.Headers.Location
-        $response.Dispose()
-        $response = $null
-        if ($null -eq $location) {
-          throw "$AssetLabel redirect did not include a destination."
-        }
-        $currentUri = if ($location.IsAbsoluteUri) {
-          $location
-        } else {
-          [uri]::new($currentUri, $location)
-        }
-        continue
+      $currentUri = if ($location.IsAbsoluteUri) {
+        $location
+      } else {
+        [uri]::new($currentUri, $location)
       }
-      if (-not $response.IsSuccessStatusCode) {
-        throw "$AssetLabel server returned HTTP $statusCode."
-      }
-      break
+      $response = $null
+      continue
     }
-    if ($null -eq $response) {
-      throw "$AssetLabel redirected too many times."
+    if ($statusCode -lt 200 -or $statusCode -ge 300) {
+      throw "$AssetLabel server returned HTTP $statusCode."
     }
-    $contentType = if ($null -eq $response.Content.Headers.ContentType) {
-      ''
-    } else {
-      ([string]$response.Content.Headers.ContentType.MediaType).ToLowerInvariant()
-    }
+    break
+  }
+  if ($null -eq $response) {
+    throw "$AssetLabel redirected too many times."
+  }
+  $contentType = if ($response.Headers.ContainsKey('Content-Type')) {
+    (
+      ([string]$response.Headers['Content-Type'] -split ';', 2)[0]
+    ).Trim().ToLowerInvariant()
+  } else {
+    ''
+  }
     $typeMap = @{
       'image/svg+xml' = '.svg'
       'image/png' = '.png'
@@ -3683,28 +4717,7 @@ function Get-RemoteCustomIconAsset {
     ) {
       throw "$AssetLabel must be a static raster image."
     }
-    $declaredContentLength = $response.Content.Headers.ContentLength
-    if (
-      $null -ne $declaredContentLength -and
-      [long]$declaredContentLength -gt $maximumBytes
-    ) {
-      throw "$AssetLabel is larger than the $maximumSizeLabel limit."
-    }
-    $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-    $memory = [System.IO.MemoryStream]::new()
-    try {
-      $buffer = New-Object byte[] 16384
-      while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-        if ($memory.Length + $read -gt $maximumBytes) {
-          throw "$AssetLabel is larger than the $maximumSizeLabel limit."
-        }
-        $memory.Write($buffer, 0, $read)
-      }
-      $bytes = $memory.ToArray()
-    } finally {
-      $inputStream.Dispose()
-      $memory.Dispose()
-    }
+    $bytes = [byte[]]$response.Body
     if ($bytes.Length -eq 0) {
       throw "$AssetLabel response was empty."
     }
@@ -3788,24 +4801,17 @@ img{display:block;width:88%;height:88%;object-fit:contain}
           -CachePath $managedCachePath | Out-Null
       }
     }
-    return [pscustomobject]@{
-      success = $true
-      sourceUrl = $Source
-      finalUrl = $currentUri.AbsoluteUri
-      contentType = $contentType
-      sourcePath = $sourcePath
-      previewPath = $previewPath
-      cachePath = if ($extension -eq '.svg') { '' } else { $managedCachePath }
-      isSvg = $extension -eq '.svg'
-      byteLength = $bytes.Length
-      cacheKey = $cacheKey
-    }
-  } finally {
-    if ($null -ne $response) {
-      $response.Dispose()
-    }
-    $client.Dispose()
-    $handler.Dispose()
+  return [pscustomobject]@{
+    success = $true
+    sourceUrl = $Source
+    finalUrl = $currentUri.AbsoluteUri
+    contentType = $contentType
+    sourcePath = $sourcePath
+    previewPath = $previewPath
+    cachePath = if ($extension -eq '.svg') { '' } else { $managedCachePath }
+    isSvg = $extension -eq '.svg'
+    byteLength = $bytes.Length
+    cacheKey = $cacheKey
   }
 }
 
@@ -3823,6 +4829,245 @@ function Get-RemoteRasterMediaSource {
     -RasterOnly `
     -SkipCardCopy
   return [string]$asset.sourcePath
+}
+
+if ($NetworkBoundaryProbe) {
+  function Test-PinnedResponseRejected {
+    param(
+      [Parameter(Mandatory = $true)]
+      [string]$ResponseText,
+      [long]$MaximumBytes = 2097152
+    )
+
+    try {
+      [WorkspaceWidgetPinnedHttpsClient]::ParseResponseForProbe(
+        [System.Text.Encoding]::ASCII.GetBytes($ResponseText),
+        $MaximumBytes,
+        1000
+      ) | Out-Null
+      return $false
+    } catch {
+      return $true
+    }
+  }
+
+  $publicAddressStrings = @(
+    '8.8.8.8',
+    '1.1.1.1',
+    '2606:4700:4700::1111',
+    '2001:4860:4860::8888'
+  )
+  $blockedAddressStrings = @(
+    '0.0.0.1',
+    '10.0.0.1',
+    '100.64.0.1',
+    '127.0.0.1',
+    '169.254.1.1',
+    '172.16.0.1',
+    '192.0.0.1',
+    '192.0.2.1',
+    '192.168.0.1',
+    '198.18.0.1',
+    '198.51.100.1',
+    '203.0.113.1',
+    '224.0.0.1',
+    '::1',
+    '::10.0.0.1',
+    '64:ff9b::a00:1',
+    '64:ff9b:1::a00:1',
+    '100::1',
+    '2001::1',
+    '2001:2::1',
+    '2001:db8::1',
+    '2002::1',
+    '3ffe::1',
+    '3fff::1',
+    'fc00::1',
+    'fe80::1',
+    'ff00::1'
+  )
+  $publicAddressChecks = @(
+    $publicAddressStrings | ForEach-Object {
+      Test-PublicRemoteIconAddress -Address (
+        [System.Net.IPAddress]::Parse($_)
+      )
+    }
+  )
+  $blockedAddressChecks = @(
+    $blockedAddressStrings | ForEach-Object {
+      -not (Test-PublicRemoteIconAddress -Address (
+          [System.Net.IPAddress]::Parse($_)
+        ))
+    }
+  )
+  $candidateAddresses = @(
+    '8.8.8.8',
+    '8.8.4.4',
+    '1.1.1.1',
+    '1.0.0.1',
+    '9.9.9.9',
+    '149.112.112.112',
+    '208.67.222.222',
+    '208.67.220.220'
+  ) | ForEach-Object { [System.Net.IPAddress]::Parse($_) }
+  $selectedAddresses = @(
+    Select-PublicRemoteIconAddresses `
+      -Addresses $candidateAddresses `
+      -MaximumCount 4
+  )
+  $mixedAddresses = @(
+    [System.Net.IPAddress]::Parse('8.8.8.8'),
+    [System.Net.IPAddress]::Parse('127.0.0.1')
+  )
+  $mixedSelection = @(
+    Select-PublicRemoteIconAddresses `
+      -Addresses $mixedAddresses `
+      -MaximumCount 4
+  )
+
+  $validResponse = (
+    "HTTP/1.1 200 OK`r`n" +
+    "Content-Type: image/png`r`n" +
+    "Content-Length: 4`r`n`r`n" +
+    'TEST'
+  )
+  $validParsed = [WorkspaceWidgetPinnedHttpsClient]::ParseResponseForProbe(
+    [System.Text.Encoding]::ASCII.GetBytes($validResponse),
+    16,
+    1000
+  )
+  $conflictingFramingRejected = Test-PinnedResponseRejected -ResponseText (
+    "HTTP/1.1 200 OK`r`n" +
+    "Content-Type: image/png`r`n" +
+    "Transfer-Encoding: chunked`r`n" +
+    "Content-Length: 0`r`n`r`n" +
+    "0`r`n`r`n"
+  )
+  $malformedHeaderRejected = Test-PinnedResponseRejected -ResponseText (
+    "HTTP/1.1 200 OK`r`n" +
+    "Bad Header`r`n`r`n"
+  )
+  $trailerLines = @(
+    1..9 | ForEach-Object {
+      "X-Probe-$($_): " + ('a' * 8000)
+    }
+  )
+  $oversizedTrailerRejected = Test-PinnedResponseRejected -ResponseText (
+    "HTTP/1.1 200 OK`r`n" +
+    "Content-Type: image/png`r`n" +
+    "Transfer-Encoding: chunked`r`n`r`n" +
+    "0`r`n" +
+    ($trailerLines -join "`r`n") +
+    "`r`n`r`n"
+  )
+  $certificatePolicy = @{
+    valid = [WorkspaceWidgetPinnedHttpsClient]::EvaluateCertificatePolicyForProbe(
+      [System.Net.Security.SslPolicyErrors]::None,
+      [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags[]]@()
+    )
+    nameMismatchRejected = -not (
+      [WorkspaceWidgetPinnedHttpsClient]::EvaluateCertificatePolicyForProbe(
+        [System.Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch,
+        [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags[]]@()
+      )
+    )
+    revokedRejected = -not (
+      [WorkspaceWidgetPinnedHttpsClient]::EvaluateCertificatePolicyForProbe(
+        [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors,
+        [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags[]]@(
+          [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags]::Revoked
+        )
+      )
+    )
+    unavailableRevocationSoftFail = (
+      [WorkspaceWidgetPinnedHttpsClient]::EvaluateCertificatePolicyForProbe(
+        [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors,
+        [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags[]]@(
+          [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags]::RevocationStatusUnknown
+        )
+      )
+    )
+    combinedUnavailableRevocationSoftFail = (
+      [WorkspaceWidgetPinnedHttpsClient]::EvaluateCertificatePolicyForProbe(
+        [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors,
+        [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags[]]@(
+          (
+            [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags]::RevocationStatusUnknown -bor
+            [System.Security.Cryptography.X509Certificates.X509ChainStatusFlags]::OfflineRevocation
+          )
+        )
+      )
+    )
+  }
+  $checks = [ordered]@{
+    publicAddressesAccepted = @(
+      $publicAddressChecks | Where-Object { -not $_ }
+    ).Count -eq 0
+    specialAddressesRejected = @(
+      $blockedAddressChecks | Where-Object { -not $_ }
+    ).Count -eq 0
+    addressCandidatesBounded = $selectedAddresses.Count -eq 4
+    mixedPrivateSetRejected = $mixedSelection.Count -eq 0
+    validResponseParsed = (
+      $validParsed.StatusCode -eq 200 -and
+      $validParsed.Body.Length -eq 4
+    )
+    conflictingFramingRejected = $conflictingFramingRejected
+    malformedHeaderRejected = $malformedHeaderRejected
+    oversizedTrailerRejected = $oversizedTrailerRejected
+    totalDeadlineEnforced = (
+      [WorkspaceWidgetPinnedHttpsClient]::DeadlineExpiresForProbe(100)
+    )
+    tlsHandshakeDeadlineEnforced = (
+      [WorkspaceWidgetPinnedHttpsClient]::TlsHandshakeTimesOutForProbe(1000)
+    )
+    certificatePolicy = @(
+      $certificatePolicy.Values | Where-Object { -not $_ }
+    ).Count -eq 0
+  }
+  $failedChecks = @(
+    $checks.GetEnumerator() |
+      Where-Object { -not $_.Value } |
+      ForEach-Object { $_.Key }
+  )
+  [pscustomobject]@{
+    success = $failedChecks.Count -eq 0
+    failedChecks = $failedChecks
+    checks = [pscustomobject]$checks
+    publicAddressCount = $publicAddressStrings.Count
+    blockedAddressCount = $blockedAddressStrings.Count
+    selectedAddressCount = $selectedAddresses.Count
+  } | ConvertTo-Json -Depth 5
+  if ($failedChecks.Count -gt 0) {
+    exit 1
+  }
+  exit 0
+}
+
+if (-not [string]::IsNullOrWhiteSpace($RemoteAssetProbeSource)) {
+  try {
+    $remoteAssetProbe = Get-RemoteCustomIconAsset `
+      -Source $RemoteAssetProbeSource `
+      -MaximumBytes 2097152 `
+      -CacheDirectoryName 'RemoteAssetProbeCache' `
+      -AssetLabel 'Remote asset probe' `
+      -SkipCardCopy
+    [pscustomobject]@{
+      success = $true
+      finalUrl = $remoteAssetProbe.finalUrl
+      contentType = $remoteAssetProbe.contentType
+      byteLength = $remoteAssetProbe.byteLength
+      pinnedTransport = $true
+    } | ConvertTo-Json -Depth 4
+    exit 0
+  } catch {
+    [pscustomobject]@{
+      success = $false
+      error = $_.Exception.Message
+      pinnedTransport = $true
+    } | ConvertTo-Json -Depth 4
+    exit 1
+  }
 }
 
 function New-MediaBitmap {

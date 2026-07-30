@@ -31,7 +31,7 @@ Workspace Widget does not download or silently install it.
 
 ## Node.js
 
-The application package includes the official Node.js 24.18.0 LTS Windows x64
+The application package includes the official Node.js 24.18.1 LTS Windows x64
 binary distribution so an explicitly configured local JavaScript service can
 start without a separate machine-wide Node.js installation. npm is included
 as part of that official distribution. Workspace Widget does not automatically
@@ -39,9 +39,9 @@ install project packages.
 
 - Project: https://nodejs.org/
 - Distribution:
-  https://nodejs.org/download/release/v24.18.0/node-v24.18.0-win-x64.zip
+  https://nodejs.org/download/release/v24.18.1/node-v24.18.1-win-x64.zip
 - SHA-256:
-  `0AE68406B42D7725661DA979B1403EC9926DA205C6770827F33AAC9D8F26E821`
+  `EC56B84A7551893AB2324EBDFDC4AB974A63B4781162600B68A1293CC3E53765`
 - License: `runtime\node\LICENSE` in the installed package
 
 Node.js includes software under additional compatible licenses. The complete

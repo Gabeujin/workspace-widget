@@ -33,6 +33,26 @@ function Add-PublicSourceFinding {
     })
 }
 
+function Get-TrackedFileText {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RelativePath
+  )
+
+  $output = @(& git -C $ProjectRoot show ":$RelativePath" 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    Add-PublicSourceFinding `
+      -Rule 'unreadable-index-blob' `
+      -Path $RelativePath `
+      -Detail 'The staged Git blob could not be read.'
+    return ''
+  }
+  return [string]::Join(
+    "`n",
+    @($output | ForEach-Object { [string]$_ })
+  )
+}
+
 $trackedFiles = @(
   & git -C $ProjectRoot ls-files 2>&1 |
     ForEach-Object { [string]$_ } |
@@ -140,7 +160,6 @@ $sensitivePatterns = [ordered]@{
 foreach ($trackedFile in $trackedFiles) {
   $relativePath = $trackedFile.Replace('\', '/')
   $relativeLower = $relativePath.ToLowerInvariant()
-  $fullPath = Join-Path $ProjectRoot $trackedFile
 
   foreach ($prefix in $forbiddenPrefixes) {
     if ($relativeLower.StartsWith($prefix)) {
@@ -185,14 +204,11 @@ foreach ($trackedFile in $trackedFiles) {
       -Detail 'Only the placeholder Store identity example may be tracked.'
   }
 
-  if (
-    $extension -notin $textExtensions -or
-    -not (Test-Path -LiteralPath $fullPath -PathType Leaf)
-  ) {
+  if ($extension -notin $textExtensions) {
     continue
   }
 
-  $content = [System.IO.File]::ReadAllText($fullPath)
+  $content = Get-TrackedFileText -RelativePath $relativePath
   foreach ($pattern in $sensitivePatterns.GetEnumerator()) {
     if (
       $relativePath -eq 'scripts/Test-PublicSource.ps1' -and
@@ -224,25 +240,23 @@ foreach ($trackedFile in $trackedFiles) {
   }
 }
 
-$defaultStatePath = Join-Path $ProjectRoot 'app\default-state.json'
-$publicDefaultStatePath = Join-Path `
-  $ProjectRoot `
-  'app\public-default-state.json'
+$defaultStatePath = 'app/default-state.json'
+$publicDefaultStatePath = 'app/public-default-state.json'
+$defaultTemplatesMatch = $false
 if (
-  -not (Test-Path -LiteralPath $defaultStatePath -PathType Leaf) -or
-  -not (Test-Path -LiteralPath $publicDefaultStatePath -PathType Leaf)
+  $defaultStatePath -notin $trackedFiles -or
+  $publicDefaultStatePath -notin $trackedFiles
 ) {
   Add-PublicSourceFinding `
     -Rule 'missing-public-default' `
     -Path 'app' `
     -Detail 'Both default-state templates must exist.'
 } else {
-  $defaultState = Get-Content -LiteralPath $defaultStatePath -Raw |
-    ConvertFrom-Json
-  $publicDefaultState = Get-Content `
-    -LiteralPath $publicDefaultStatePath `
-    -Raw |
-    ConvertFrom-Json
+  $defaultStateText = Get-TrackedFileText -RelativePath $defaultStatePath
+  $publicDefaultStateText = Get-TrackedFileText `
+    -RelativePath $publicDefaultStatePath
+  $defaultState = $defaultStateText | ConvertFrom-Json
+  $publicDefaultState = $publicDefaultStateText | ConvertFrom-Json
   if (
     @($defaultState.items).Count -ne 0 -or
     @($publicDefaultState.items).Count -ne 0
@@ -252,13 +266,17 @@ if (
       -Path 'app/default-state.json' `
       -Detail 'Public source defaults must not contain registered items.'
   }
-  $defaultHash = (
-    Get-FileHash -LiteralPath $defaultStatePath -Algorithm SHA256
-  ).Hash
-  $publicHash = (
-    Get-FileHash -LiteralPath $publicDefaultStatePath -Algorithm SHA256
-  ).Hash
-  if ($defaultHash -ne $publicHash) {
+  $defaultBlob = [string](
+    & git -C $ProjectRoot rev-parse ":$defaultStatePath" 2>$null
+  )
+  $publicBlob = [string](
+    & git -C $ProjectRoot rev-parse ":$publicDefaultStatePath" 2>$null
+  )
+  $defaultTemplatesMatch = (
+    -not [string]::IsNullOrWhiteSpace($defaultBlob) -and
+    $defaultBlob -eq $publicBlob
+  )
+  if (-not $defaultTemplatesMatch) {
     Add-PublicSourceFinding `
       -Rule 'default-template-drift' `
       -Path 'app/default-state.json' `
@@ -285,18 +303,7 @@ $result = [pscustomobject][ordered]@{
   success = $findings.Count -eq 0
   trackedFileCount = $trackedFiles.Count
   commitEmailCount = $commitEmails.Count
-  defaultTemplatesMatch = if (
-    (Test-Path -LiteralPath $defaultStatePath -PathType Leaf) -and
-    (Test-Path -LiteralPath $publicDefaultStatePath -PathType Leaf)
-  ) {
-    (
-      Get-FileHash -LiteralPath $defaultStatePath -Algorithm SHA256
-    ).Hash -eq (
-      Get-FileHash -LiteralPath $publicDefaultStatePath -Algorithm SHA256
-    ).Hash
-  } else {
-    $false
-  }
+  defaultTemplatesMatch = $defaultTemplatesMatch
   findingCount = $findings.Count
   findings = @($findings)
 }

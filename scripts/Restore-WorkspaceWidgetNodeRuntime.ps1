@@ -2,9 +2,9 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '24.18.0',
+  [string]$Version = '24.18.1',
   [ValidatePattern('^[A-Fa-f0-9]{64}$')]
-  [string]$PackageSha256 = '0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821'
+  [string]$PackageSha256 = 'ec56b84a7551893ab2324ebdfdc4ab974a63b4781162600b68a1293cc3e53765'
 )
 
 Set-StrictMode -Version Latest

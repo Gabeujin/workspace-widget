@@ -359,15 +359,15 @@ $checks = [ordered]@{
   )
   bundledNodeRuntime = (
     [string]$nodeRuntimeManifest.product -eq 'Node.js' -and
-    [string]$nodeRuntimeManifest.version -eq '24.18.0' -and
+    [string]$nodeRuntimeManifest.version -eq '24.18.1' -and
     [string]$nodeRuntimeManifest.packageSha256 -eq
-      '0AE68406B42D7725661DA979B1403EC9926DA205C6770827F33AAC9D8F26E821' -and
+      'EC56B84A7551893AB2324EBDFDC4AB974A63B4781162600B68A1293CC3E53765' -and
     [string]$nodeRuntimeManifest.sourceUrl -eq
-      'https://nodejs.org/download/release/v24.18.0/node-v24.18.0-win-x64.zip' -and
-    $nodeVersion -eq 'v24.18.0' -and
+      'https://nodejs.org/download/release/v24.18.1/node-v24.18.1-win-x64.zip' -and
+    $nodeVersion -eq 'v24.18.1' -and
     -not [string]::IsNullOrWhiteSpace($npmVersion) -and
     $null -ne $nodeDependency -and
-    [string]$nodeDependency.version -eq '24.18.0'
+    [string]$nodeDependency.version -eq '24.18.1'
   )
   nodeRuntimeHashes = $nodeRuntimeMismatches.Count -eq 0
   noSensitiveStageText = $sensitiveFindings.Count -eq 0

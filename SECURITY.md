@@ -2,10 +2,12 @@
 
 ## Reporting a vulnerability
 
-Use the repository's private security-advisory flow after the public repository
-is established. Do not include exploit details, private paths, credentials, or
-workstation screenshots in a public issue. A maintainer contact must be added
-before the first official release.
+Use the repository's
+[private vulnerability-reporting form](https://github.com/Gabeujin/workspace-widget/security/advisories/new).
+Do not include exploit details, private paths, credentials, or workstation
+screenshots in a public issue. If the private form is unavailable, open a
+public issue containing only a request for a private reporting channel; do not
+include technical details in that issue.
 
 Include:
 
@@ -34,11 +36,24 @@ real target and preserves the shortcut's arguments, working directory, icon,
 and requested window style. Review those values before running a shortcut from
 an untrusted source.
 
-Remote raster media must resolve only to public HTTPS addresses. Redirects,
-response size, content type, and decoded dimensions are checked before a local
-cache copy is rendered by Windows imaging components. Direct remote video
-streams are rejected because Windows media playback would otherwise perform a
-second network request outside that bounded downloader. Local video remains
+Remote raster media must resolve exclusively to public HTTPS addresses. Each
+request connects directly to one of those validated addresses while TLS still
+authenticates the original hostname, preventing DNS rebinding between
+validation and connection. Redirect destinations are resolved and pinned
+again. TLS protocol selection follows the Windows policy. Name mismatches,
+explicitly revoked certificates, untrusted chains, and other chain errors are
+rejected; only an unavailable or offline revocation service is soft-failed
+after the remaining name and chain checks pass. Response time, address
+candidates, redirects, header and chunk metadata, body size, content type, and
+decoded dimensions are bounded before a local cache copy is rendered by
+Windows imaging components.
+
+The pinned downloader intentionally bypasses system HTTPS proxies because a
+proxy would perform a second DNS resolution outside this boundary. Remote
+icons and hover images therefore remain unavailable on networks that require a
+mandatory HTTPS proxy; local images continue to work. Direct remote video
+streams are rejected because the Windows media pipeline would otherwise
+perform another request outside the bounded downloader. Local video remains
 supported. YouTube hover previews use WebView2 and `youtube-nocookie.com`;
 top-level navigation is restricted to the exact privacy-enhanced embed route,
 web messages and host objects are disabled, permissions are denied, and popups

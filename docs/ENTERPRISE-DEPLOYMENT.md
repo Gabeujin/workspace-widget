@@ -42,7 +42,7 @@ artifacts\WorkspaceWidget-Setup-<version>.exe
 
 The staged package contains the x64 native host, WPF application script, clean
 public default state, icons, autostart helper, legal notices, pinned WebView2
-SDK files, and the official Node.js 24.18.0 LTS Windows x64 distribution. The
+SDK files, and the official Node.js 24.18.1 LTS Windows x64 distribution. The
 dependency restore scripts accept only pinned sources and verify exact SHA-256
 values before extracting files.
 
@@ -224,7 +224,7 @@ YouTube playback requires the Microsoft Edge WebView2 Evergreen Runtime.
 Workspace Widget ships SDK assemblies and a native loader but does not install
 or silently download the runtime.
 
-Node.js 24.18.0 LTS and npm are included under `runtime\node`; pnpm is not.
+Node.js 24.18.1 LTS and npm are included under `runtime\node`; pnpm is not.
 The official Node.js archive is checksum-pinned and its full license material
 is retained. If local service startup is approved, restrict shortcut
 configuration to trusted projects. Workspace Widget does not install project
