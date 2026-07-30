@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 4,
+  "window": {
+    "left": 80,
+    "top": 60,
+    "width": 552,
+    "height": 640,
+    "opacity": 0.88,
+    "hoverBrightness": true,
+    "alwaysOnTop": false,
+    "minUiMode": false,
+    "minUiLeft": 16,
+    "minUiTop": 60,
+    "minUiHeight": 640,
+    "minUiOpacity": 0.35,
+    "attachToDesktop": false,
+    "appearance": {
+      "theme": "Midnight",
+      "accentColor": "#FF3E8BFF",
+      "panelColor": "#EE09162B",
+      "cardColor": "#E80F203B",
+      "cardHoverColor": "#F2162F56",
+      "textColor": "#FFF6F9FF",
+      "backgroundMedia": "",
+      "backgroundMediaKind": "auto",
+      "backgroundMediaOpacity": 0.42,
+      "backgroundVideoMuted": true
+    }
+  },
+  "items": []
+}

@@ -1,0 +1,60 @@
+name: Public source gate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Verify tracked public source
+        shell: powershell
+        run: |
+          .\scripts\Test-PublicSource.ps1
+
+      - name: Parse PowerShell source
+        shell: powershell
+        run: |
+          $invalid = @(
+            Get-ChildItem -Recurse -File -Filter *.ps1 |
+              ForEach-Object {
+                $tokens = $null
+                $errors = $null
+                [System.Management.Automation.Language.Parser]::ParseFile(
+                  $_.FullName,
+                  [ref]$tokens,
+                  [ref]$errors
+                ) | Out-Null
+                if ($errors.Count -gt 0) {
+                  [pscustomobject]@{
+                    path = $_.FullName
+                    errors = @($errors | ForEach-Object Message)
+                  }
+                }
+              }
+          )
+          if ($invalid.Count -gt 0) {
+            $invalid | ConvertTo-Json -Depth 5
+            throw 'PowerShell parsing failed.'
+          }
+
+      - name: Build allowlisted development stage
+        shell: powershell
+        run: |
+          $outputRoot = Join-Path $env:RUNNER_TEMP 'workspace-widget-build'
+          .\scripts\Build-WorkspaceWidget.ps1 `
+            -Version 0.1.0 `
+            -OutputRoot $outputRoot `
+            -SkipInstaller
+          .\scripts\Test-WorkspaceWidgetRelease.ps1 `
+            -Version 0.1.0 `
+            -OutputRoot $outputRoot
