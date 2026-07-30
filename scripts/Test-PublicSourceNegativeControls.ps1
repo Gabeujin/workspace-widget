@@ -112,3 +112,5 @@ $tests = @(
   testCount = $tests.Count
   tests = @($tests)
 } | ConvertTo-Json -Depth 6
+
+$global:LASTEXITCODE = 0
