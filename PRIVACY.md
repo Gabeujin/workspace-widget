@@ -2,6 +2,9 @@
 
 Last updated: 2026-07-30
 
+Published copy:
+<https://gabeujin.github.io/workspace-widget/privacy/>
+
 Workspace Widget is a local-first Windows desktop launcher. The application
 does not include developer-operated analytics, advertising, telemetry,
 accounts, or a remote data-collection service.
@@ -42,11 +45,13 @@ dependencies automatically.
 
 ## Retention and deletion
 
-Microsoft Store uninstall removes the application package. The per-user state
-directory is retained so a later reinstall can restore the user's layout.
-Deleting that retained directory permanently removes Workspace Widget's local
-configuration. The exact directory and deletion scope should be reviewed before
-that separate destructive action.
+The Store release is designed to keep per-user state outside the managed
+application package so a later reinstall can restore the user's layout. Exact
+update, uninstall, and reinstall behavior will be independently verified on the
+Store-signed package before certification. Deleting the state directory
+separately permanently removes Workspace Widget's local configuration. The
+exact directory and deletion scope should be reviewed before that separate
+destructive action.
 
 ## Children
 
@@ -56,7 +61,9 @@ children. It does not knowingly collect personal information from children.
 ## Changes and contact
 
 Material policy changes will update the date and be published with the
-application's release information. Before the first certified public release,
-this policy must be hosted at a stable HTTPS URL and that URL must be entered
-in Partner Center. Privacy questions can be sent through the support contact
-shown on the certified Microsoft Store listing.
+application's release information. Privacy questions that do not contain
+sensitive information can use the public support routes at
+<https://gabeujin.github.io/workspace-widget/support/>. Security
+vulnerabilities, logs, or other sensitive details must be reported through
+GitHub private security advisories:
+<https://github.com/Gabeujin/workspace-widget/security/advisories/new>.

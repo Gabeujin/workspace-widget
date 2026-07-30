@@ -1,5 +1,12 @@
 # Workspace Widget
 
+[![Public source gate](https://github.com/Gabeujin/workspace-widget/actions/workflows/public-source.yml/badge.svg?branch=main)](https://github.com/Gabeujin/workspace-widget/actions/workflows/public-source.yml)
+
+[Product site](https://gabeujin.github.io/workspace-widget/) ·
+[Privacy](https://gabeujin.github.io/workspace-widget/privacy/) ·
+[Support](https://gabeujin.github.io/workspace-widget/support/) ·
+[Source-only RC](https://github.com/Gabeujin/workspace-widget/releases/tag/v0.1.0-rc.1)
+
 Workspace Widget is a movable Windows 11 launcher for local web apps,
 applications, files, folders, and URLs. It runs as the branded
 `WorkspaceWidget.exe`; no console or `wscript.exe` window is used.
@@ -7,6 +14,8 @@ applications, files, folders, and URLs. It runs as the branded
 Version `0.1.0` is a Windows-only release candidate. Its supported public
 distribution channel is a Microsoft Store MSIX package. Local development
 packages are unsigned and must never be presented as public downloads.
+
+![Workspace Widget overview](docs/media/screenshots/workspace-widget-overview.png)
 
 ## Highlights
 
@@ -44,10 +53,14 @@ Other operating systems and 32-bit Windows are not supported.
 
 ## Install
 
-Install the certified Workspace Widget listing from Microsoft Store. Windows
-installs the Store-signed MSIX, creates the app identity and Start entry, and
-services future updates. The app asks Windows to enable its declared startup
-task only when the user turns on **Start with Windows**.
+The certified Microsoft Store listing is not available yet. No unsigned MSIX
+or legacy installer is offered as a public download. Until certification,
+review the public source and source-only release candidate instead.
+
+After Microsoft Store certification, Windows will install the Store-signed
+MSIX, create the app identity and Start entry, and service future updates. The
+app asks Windows to enable its declared startup task only when the user turns
+on **Start with Windows**.
 
 The existing Inno Setup and unpackaged install scripts are retained only for
 local development and migration testing; they are not supported public release
@@ -152,3 +165,8 @@ WebView2, and legacy development-installer notices are listed in
 [Third-party notices](THIRD-PARTY-NOTICES.md). Review
 [Security policy](SECURITY.md) and [Privacy policy](PRIVACY.md) before
 configuring executable targets or remote media.
+
+For public help, use the [support page](https://gabeujin.github.io/workspace-widget/support/).
+Report vulnerabilities through
+[GitHub private security advisories](https://github.com/Gabeujin/workspace-widget/security/advisories/new),
+not a public issue.

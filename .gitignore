@@ -75,6 +75,7 @@ design/
 design-qa.md
 diagnostics/
 skin/
+.public-source-denylist.local.txt
 
 # Image-generation intermediates are not release assets
 assets/workspace-widget-logo-v*-key.png

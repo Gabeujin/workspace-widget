@@ -5,7 +5,11 @@ local applications, files, folders, and web apps from a movable WPF widget. It
 can also monitor optional health endpoints and start a configured local Node.js
 service before opening its URL.
 
-This guide describes the current 0.1.0 development build.
+This guide describes the intended 0.1.0 Microsoft Store experience and the
+feature behavior verified on the current development build. No certified Store
+listing is available yet. Packaged startup, update, uninstall, and reinstall
+behavior remains subject to the release gates in
+[PUBLIC-RELEASE-REVIEW.md](../PUBLIC-RELEASE-REVIEW.md).
 
 ## System requirements
 
@@ -22,9 +26,11 @@ The current package does not install pnpm or the WebView2 Evergreen Runtime.
 
 ## Install
 
-Install Workspace Widget from its certified Microsoft Store listing. Windows
-installs and updates the Store-signed MSIX for the signed-in user. Launch it
-from Store or Start, then optionally enable **Start with Windows** in the app.
+After certification, install Workspace Widget from its Microsoft Store listing.
+The intended experience is for Windows to install and update the Store-signed
+MSIX for the signed-in user. Launch it from Store or Start, then optionally
+enable **Start with Windows** in the app. Until certification succeeds, no
+supported public package or Store listing is available.
 
 ### Unsigned development builds
 
@@ -224,17 +230,20 @@ To stop it completely, right-click the notification-area icon and select
 
 ## Start with Windows
 
-**Settings > Start with Windows** controls the package-declared Windows startup
-task:
+In the intended Store package, **Settings > Start with Windows** controls the
+package-declared Windows startup task:
 
 ```text
 WorkspaceWidgetStartup
 ```
 
-The task starts the packaged application for the signed-in user. Windows keeps
-the authoritative setting in **Settings > Apps > Startup** and Task Manager.
+The manifest and application bridge for this task pass the current structural
+checks. The exact packaged behavior remains an independent Windows 11 release
+gate. When certified, the task is intended to start the packaged application
+for the signed-in user, while Windows keeps the authoritative setting in
+**Settings > Apps > Startup** and Task Manager.
 
-The settings status can report:
+The settings status is designed to report:
 
 - **On**: the startup task is enabled.
 - **Off**: the task is disabled.
@@ -243,8 +252,8 @@ The settings status can report:
 - **Managed by policy** or **Unavailable**: organization policy or Windows did
   not allow the setting to be changed.
 
-Turning Start with Windows off disables the declared task. The Store package
-does not create or repair a Task Scheduler entry.
+Turning Start with Windows off is designed to disable the declared task. The
+Store package design does not create or repair a Task Scheduler entry.
 
 ## State, logs, and upgrades
 
@@ -267,9 +276,11 @@ State writes are performed through a temporary file and replace operation. If
 the primary JSON file cannot be read, the application tries
 `state.json.previous` before using packaged defaults.
 
-Microsoft Store updates preserve the package identity and do not install over
-the state directory. Registered items and preferences are
-therefore retained across normal upgrades and reinstalls.
+The Store release is designed to preserve package identity and keep this state
+directory outside immutable package files. Registered items and preferences are
+therefore expected to remain available across normal upgrades and reinstalls.
+Exact update and reinstall behavior will be independently verified on the
+Store-signed package before certification.
 
 For a manual backup:
 
@@ -282,10 +293,12 @@ Do not edit or synchronize `state.json` while the widget is running.
 
 ## Uninstall
 
-Windows Settings or Microsoft Store can uninstall Workspace Widget. Uninstall
-removes the managed package and its startup-task declaration. The per-user
-state directory is intentionally retained so that a later
-reinstall can restore the user's layout and shortcuts.
+Windows Settings or Microsoft Store will be able to uninstall the certified
+Workspace Widget package. Package removal is expected to remove the managed
+package and its startup-task declaration while leaving the separately stored
+per-user state available for a later reinstall. Exact uninstall and reinstall
+retention behavior will be independently verified on the Store-signed package
+before certification.
 
 Removing the retained state is a separate, destructive action. Review and
 approve the exact directory before deleting it.

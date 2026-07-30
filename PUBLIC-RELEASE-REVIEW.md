@@ -5,8 +5,8 @@ Candidate: 0.1.0, Windows 11 x64
 
 ## Decision
 
-**Engineering gate passed at 9.9 / 10.0; official Microsoft Store submission
-remains on hold.**
+**Current-device engineering controls passed; the final negative review is in
+progress and official Microsoft Store submission remains on hold.**
 
 The x64 full-trust WPF host, allowlisted runtime stage, Store manifest
 template, package receipt, package-aware startup task, clean public default,
@@ -18,9 +18,18 @@ The final current-device verification passed 48/48 integration checks, 17/17
 unpackaged release checks, and 14/14 development-identity MSIX checks. The
 installer upgrade preserved the user-state SHA-256, the staged and installed
 native-host hashes match, all configured health-check targets were online, and
-ESET reported zero detections across the final installer and MSIX contents.
+ESET reported zero detections across 4,028 files and 8,061 objects in the fresh
+development validation outputs. The commands, counts, limitations, and artifact
+hashes are recorded in
+[the Phase 7 verification receipt](docs/PHASE7-VERIFICATION-RECEIPT.md).
 The arbitrary-project-root regression was rejected before its proof marker
 could change.
+
+The public product, privacy, and support pages are deployed under
+<https://gabeujin.github.io/workspace-widget/>. Four neutral Store screenshots,
+the documented brand set, the bilingual Store listing kit, and the independent
+Windows 11 test checklist are prepared. These are publication-preparation
+artifacts, not Microsoft certification evidence.
 
 ## Remaining publication blockers
 
@@ -34,11 +43,12 @@ could change.
    fallback, Node startup, state migration, and uninstall on an independent
    supported Windows 11 device when one is available. The current-device
    installed candidate has already passed the corresponding integration suite.
-4. Optionally rehearse with the Windows App Certification Kit. Partner Center
-   certification is the authoritative Store gate.
-5. Publish `PRIVACY.md` at a stable HTTPS URL, verify the support contact, and
-   complete Partner Center listing, age rating, `runFullTrust` justification,
-   and product/trademark review.
+4. Run the Windows App Certification Kit against the exact candidate on the
+   independent device and resolve every applicable failure. Partner Center
+   certification remains the authoritative Store gate.
+5. Complete the Partner Center listing, properties, IARC age rating,
+   `runFullTrust` justification, target markets, and product/trademark review
+   using the prepared listing kit.
 6. Repeat secret, dependency, malware, and source security scans against the
    exact committed Store candidate and uploaded MSIX.
 7. Pass Partner Center certification and verify the resulting Store-signed
@@ -56,7 +66,7 @@ development artifacts and must not be described as official downloads.
 | Package identity | Store packaging refuses development placeholders when `-StoreSubmission` is set. |
 | Source binding | Store packaging refuses external stages, rebuilds from a clean Git HEAD into a fresh external output root, checks the checkout again after building, and binds the deterministic stage manifest to that revision. |
 | Startup safety | `WorkspaceWidgetStartup` is declared through `windows.startupTask`; Windows preserves user and policy control. |
-| User state | Runtime state remains outside the install root, is written atomically, keeps `state.json.previous`, and survives upgrade/uninstall. |
+| User state | Runtime state remains outside the install root, is written atomically, and keeps `state.json.previous`. The current unpackaged upgrade preserved its SHA-256; Store update, uninstall, and reinstall persistence remains an independent-device gate. |
 | Shortcut import | `.lnk` registration stores the real target plus arguments, working directory, icon resource, and window style. |
 | Window recovery | Explicit open presents a desktop-layer window in front; off-screen recovery uses physical monitor geometry, and the UI exposes desktop-layer behavior. |
 | Public defaults | The staged package renames `public-default-state.json` to `app/default-state.json` and contains no workstation shortcuts. |
@@ -67,7 +77,9 @@ development artifacts and must not be described as official downloads.
 | Licensing | MIT license and third-party notices are included. |
 | MSIX | Windows SDK `makeappx` accepts the development package structure and manifest. |
 | Receipt | The Store build writes package-relative file sizes and SHA-256 values plus the final MSIX hash. |
-| Current verification | 48/48 integration, 17/17 release, and 14/14 MSIX checks passed; ESET detected 0 threats in 4,033 scanned objects. |
+| Public web | Product, privacy, and support pages are deployed over HTTPS through GitHub Pages workflow run `30536510159`. |
+| Store handoff | Four 1366 × 768 screenshots, brand assets, bilingual listing copy, and the independent Windows 11 lifecycle checklist are prepared. |
+| Current verification | 48/48 integration, 11/11 network-boundary, 17/17 release, and 14/14 MSIX checks passed; ESET reported zero detections across 4,028 files and 8,061 objects. See the [Phase 7 receipt](docs/PHASE7-VERIFICATION-RECEIPT.md). |
 
 ## Public package contents
 
@@ -94,9 +106,9 @@ Archive these together for each public version:
 - exact Partner Center identity record and source revision;
 - install/update/uninstall log from an independent supported Windows 11 device;
 - sign-out/sign-in `StartupTask` evidence;
-- optional Windows App Certification Kit rehearsal result;
+- Windows App Certification Kit result for the exact Store candidate;
 - Partner Center certification result and Store-signed package identity;
 - secret/dependency/security scan reports;
-- archived privacy-policy URL and support-contact verification;
+- archived product, privacy-policy, and support URL verification;
 - Microsoft Defender and a second reputable malware scan result;
 - release notes and exact source commit.
