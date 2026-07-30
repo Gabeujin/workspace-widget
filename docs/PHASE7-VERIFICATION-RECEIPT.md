@@ -14,7 +14,7 @@ permission to distribute the unsigned artifacts.
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| Public-source hygiene | Pass | 68 tracked files in the staged Git index, 10 maintainer-local denylist terms loaded, 0 findings |
+| Public-source hygiene | Pass | 68 tracked files in the Git index, 10 maintainer-local denylist terms loaded, 0 findings |
 | Scanner negative controls | Pass | Automated CI fixtures rejected Git-history enumeration failure and an empty commit set. Additional local fixtures rejected tracked text, VBS content, a binary path, and a non-noreply commit; a GitHub Actions bot noreply fixture was accepted |
 | Tracked PowerShell parse | Pass | 15 tracked `.ps1` files, 0 parser errors |
 | Current-device integration | Pass | 48/48 checks; one responsive installed process; configured services online |
@@ -27,7 +27,7 @@ permission to distribute the unsigned artifacts.
 | Rendered web interaction | Pass with tool limitation | Product content rendered without console warnings/errors; English/Korean locale, light/dark theme, Privacy, and Support navigation responded correctly. The selected browser surface did not expose a screenshot API, so committed native captures remain the visual evidence |
 | GitHub repository controls | Maintainer-verified | Authenticated API checks showed dependency alerts, automated security updates, secret scanning, push protection, and private vulnerability reporting enabled; open Dependabot and secret-scanning alerts: 0 |
 | Independent negative review | Pass | P0: 0, P1: 0, P2: 0; engineering quality: 9.9/10 |
-| Pushed clean-checkout CI | Pass | Push run `30537628477` and pull-request run `30537632365` passed on implementation commit `36bedf1` |
+| Pushed clean-checkout CI | Pass | Push run `30537886939` and pull-request run `30537891453` passed on Phase 7 closeout commit `446d344` |
 
 The public-source scanner has no path-specific self-exemption. Its tracked-text
 coverage includes scripts, VBS, web formats, PowerShell data/modules,
@@ -58,12 +58,15 @@ historical metadata rather than a credential-removal incident.
 These hashes identify the local validation artifacts. They are deliberately not
 published as downloads.
 
+- Evidence set: `WW-PHASE7-20260730-201713`
+- Source revision: `446d3441a8dada61ad9bd0913aa975ee6f97f74d`
+
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `WorkspaceWidget-0.1.0-manifest.json` | 432,919 bytes | `BF69BC8EDF4610FBB9C8FF149C858F424FB322DF9522D1DC68C1BC1CD3CADFDA` |
-| `WorkspaceWidget-Setup-0.1.0.exe` | 27,497,600 bytes | `B2EE1359CBA33CB7B66C7C9C66E79AAC1E3BEC7AC48ACF4E7909200F1D059394` |
-| `WorkspaceWidget-0.1.0-x64.msix` | 41,666,971 bytes | `D355B96BF4A7938D6C5CB82275333AB704FB17769A087E9C7D10DF9A0BD415F2` |
-| `store-package-receipt.json` | 434,439 bytes | `AC7E63295E7F6E7885923A034BB50353A32C65A14ED2C55055EC676BF052D045` |
+| `WorkspaceWidget-0.1.0-manifest.json` | 432,920 bytes | `CB7DBF932F687BF89D490E4A3F6BAA23735C41585AC208F4D50430E99BAF257D` |
+| `WorkspaceWidget-Setup-0.1.0.exe` | 27,493,364 bytes | `6F79C541D084A01DF472CEC9BEA28EA4DF30FFF97C97461500641A740C62E72B` |
+| `WorkspaceWidget-0.1.0-x64.msix` | 41,667,453 bytes | `70BD960E9A84E24BD5DE56D578C2D4FF6F0CFD3C5761FDFF4C5A090696B68471` |
+| `store-package-receipt.json` | 434,439 bytes | `08EF251C5703B3D743EDCD5534595C754C20DDB8E526C97C46B28CCB9FD4E59E` |
 | Bundled Node.js archive | — | `EC56B84A7551893AB2324EBDFDC4AB974A63B4781162600B68A1293CC3E53765` |
 
 The development MSIX uses the placeholder
@@ -82,7 +85,9 @@ cleaning and quarantine disabled:
 - 8,061 objects;
 - 0 detected files or objects;
 - 0 cleaned files or objects;
-- exit code 0.
+- exit code 0;
+- scan-log SHA-256:
+  `AC9EFD9096D53E1FF2826CB8C0588070483E266176633F6E54011248C586620A`.
 
 This scan applies only to the development validation artifacts identified
 above. The exact Store-targeted candidate must be scanned again after Partner

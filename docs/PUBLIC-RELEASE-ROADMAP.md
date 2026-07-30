@@ -249,4 +249,5 @@ The following items are intentionally excluded from active work until approval:
 | 2026-07-30 | Local Phase 7 verification | Public-source, integration, network, release, MSIX, image, link, browser, and malware checks recorded | `PHASE7-VERIFICATION-RECEIPT.md` |
 | 2026-07-30 | GitHub security | Maintainer-verified authenticated API checks; owner-only settings are not independently visible on the public security page | `PHASE7-VERIFICATION-RECEIPT.md` |
 | 2026-07-30 | Independent negative review | P0 0, P1 0, P2 0; engineering quality 9.9/10 | `PHASE7-VERIFICATION-RECEIPT.md` |
-| 2026-07-30 | Pushed public-source gate | Push and pull-request clean-checkout workflows passed on implementation commit `36bedf1` | <https://github.com/Gabeujin/workspace-widget/actions/runs/30537628477>, <https://github.com/Gabeujin/workspace-widget/actions/runs/30537632365> |
+| 2026-07-30 | Pushed public-source gate | Push and pull-request clean-checkout workflows passed on Phase 7 closeout commit `446d344` | <https://github.com/Gabeujin/workspace-widget/actions/runs/30537886939>, <https://github.com/Gabeujin/workspace-widget/actions/runs/30537891453> |
+| 2026-07-30 | Final development artifacts | Evidence set `WW-PHASE7-20260730-201713` passed 17/17 release, 14/14 MSIX, and ESET 0-detection checks from source revision `446d344` | `PHASE7-VERIFICATION-RECEIPT.md` |
