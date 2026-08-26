@@ -70,6 +70,7 @@ Partner Center identity fields into a private identity JSON file:
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
   -Version 0.1.0 `
+  -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
   -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.0 `
@@ -80,6 +81,10 @@ The Store command accepts no prebuilt stage. It requires a clean Git checkout,
 rebuilds the stage with deterministic compilation into the fresh external
 output root, checks that Git remains unchanged, and runs the Store-candidate
 verifier before returning success.
+
+The application release label and Store identity version are separate. The
+`0.1.0` release candidate uses Store package version `1.0.0.0` because Microsoft
+requires a nonzero first segment and reserves the fourth segment as `0`.
 
 The Inno path remains available for local migration testing only. It is not a
 supported public distribution channel.

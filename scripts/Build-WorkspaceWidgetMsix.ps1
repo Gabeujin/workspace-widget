@@ -4,6 +4,7 @@ param(
   [string]$StageRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
   [string]$Version = '0.1.0',
+  [string]$PackageVersion,
   [ValidatePattern('^[A-Za-z0-9.-]{3,50}$')]
   [string]$PackageIdentityName = 'WorkspaceWidget.Development',
   [string]$Publisher = 'CN=WorkspaceWidgetDevelopment',
@@ -26,6 +27,41 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
   $ProjectRoot = Split-Path -Parent $PSScriptRoot
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
+
+$versionParts = @($Version.Split('.'))
+if (
+  $versionParts.Count -ne 3 -or
+  @(
+    $versionParts |
+      Where-Object { $_ -notmatch '^\d{1,5}$' -or [int]$_ -gt 65535 }
+  ).Count -gt 0
+) {
+  throw 'Version segments must be integers between 0 and 65535.'
+}
+if ([string]::IsNullOrWhiteSpace($PackageVersion)) {
+  $PackageVersion = "$Version.0"
+}
+$packageVersionParts = @($PackageVersion.Split('.'))
+if (
+  $packageVersionParts.Count -ne 4 -or
+  @(
+    $packageVersionParts |
+      Where-Object { $_ -notmatch '^\d{1,5}$' -or [int]$_ -gt 65535 }
+  ).Count -gt 0
+) {
+  throw 'PackageVersion must contain four integer segments from 0 to 65535.'
+}
+if (
+  $StoreSubmission -and (
+    [int]$packageVersionParts[0] -eq 0 -or
+    [int]$packageVersionParts[3] -ne 0
+  )
+) {
+  throw (
+    'Microsoft Store package versions require a nonzero first segment and ' +
+    'a zero fourth segment. Pass a value such as -PackageVersion 1.0.0.0.'
+  )
+}
 
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
   $buildBase = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -462,7 +498,10 @@ if (
   throw 'OutputRoot must not be StageRoot or a directory below StageRoot.'
 }
 $layoutRoot = Join-Path $OutputRoot 'layout'
-$packagePath = Join-Path $OutputRoot "WorkspaceWidget-$Version-x64.msix"
+$packageFileVersion = if ($StoreSubmission) { $PackageVersion } else { $Version }
+$packagePath = Join-Path `
+  $OutputRoot `
+  "WorkspaceWidget-$packageFileVersion-x64.msix"
 $receiptPath = Join-Path $OutputRoot 'store-package-receipt.json'
 
 foreach ($newPath in @($layoutRoot, $packagePath, $receiptPath)) {
@@ -595,7 +634,7 @@ $manifestContent = $manifestContent.
     '@@DISPLAY_NAME@@',
     (ConvertTo-XmlValue -Value $DisplayName)
   ).
-  Replace('@@PACKAGE_VERSION@@', "$Version.0")
+  Replace('@@PACKAGE_VERSION@@', $PackageVersion)
 if ($manifestContent -match '@@[A-Z0-9_]+@@') {
   throw 'The generated AppxManifest.xml still contains an unresolved token.'
 }
@@ -676,9 +715,10 @@ $packageFiles = @(
     }
 )
 $receipt = [ordered]@{
-  schemaVersion = 3
+  schemaVersion = 4
   product = 'Workspace Widget'
   version = $Version
+  packageVersion = $PackageVersion
   generatedAt = (Get-Date).ToString('o')
   distribution = if ($StoreSubmission) {
     'Microsoft Store MSIX submission'

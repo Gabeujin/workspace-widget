@@ -82,6 +82,7 @@ identity와 최신 Roslyn 컴파일러 경로를 지정합니다.
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
   -Version 0.1.0 `
+  -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
   -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.0 `
@@ -108,6 +109,14 @@ Microsoft Store가 인증 후 다시 서명한 최종 패키지만 공개 배포
 [Windows 앱 코드 서명 옵션](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)에
 설명되어 있습니다. 반대로 MSI/EXE를 Store에 연결하는 경로는 개발자가 공인
 인증서로 먼저 서명해야 하므로 이 프로젝트의 공개 배포 경로가 아닙니다.
+
+앱의 릴리스 표시는 `0.1.0`으로 유지하지만 Store package identity 버전은
+`1.0.0.0`을 사용합니다. Windows 10/11 Store 패키지는 첫 번째 버전 구간이
+0이면 안 되고 네 번째 구간은 Store용으로 `0`이어야 합니다. 빌드 및 검증기는
+이 조건을 만족하지 않으면 실패하도록 구성하며, 제출 파일도
+`WorkspaceWidget-1.0.0.0-x64.msix`처럼 패키지 버전으로 구분합니다. 자세한
+규칙은 Microsoft의 [MSIX 앱 패키지 요구 사항](https://learn.microsoft.com/windows/apps/publish/publish-your-app/msix/app-package-requirements)을
+참고합니다.
 
 ## 5. Windows App Certification Kit와 실기기 검증
 
@@ -242,7 +251,7 @@ Workspace Widget의 공개 개인정보처리방침은
 - [ ] clean commit에서 `-StoreSubmission`으로 만든 정확한 unsigned MSIX 하나만
       업로드합니다. 로컬 개발 서명본이나 Inno Setup EXE는 올리지 않습니다.
 - [ ] 업로드 전후 MSIX SHA-256이 release receipt와 같은지 확인합니다.
-- [ ] package analysis의 identity, publisher, version `0.1.0.0`, x64 architecture,
+- [ ] package analysis의 identity, publisher, version `1.0.0.0`, x64 architecture,
       Windows Desktop 대상, 최소 OS build 22000을 receipt와 대조합니다.
 - [ ] `runFullTrust`와 `windows.startupTask` 선언이 예상대로 표시되는지 확인합니다.
 - [ ] Partner Center의 `Validated` 표시는 업로드 형식 검사를 통과했다는 뜻이지,

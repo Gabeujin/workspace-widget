@@ -30,7 +30,8 @@ $requiredReceiptProperties = @(
   'packageSha256',
   'packageSigned',
   'identity',
-  'version'
+  'version',
+  'packageVersion'
 )
 if (
   @(
@@ -220,7 +221,7 @@ if ($StoreCandidate) {
   $storeSourceChecks = [ordered]@{
     receiptSchema = (
       $receipt.PSObject.Properties.Name -contains 'schemaVersion' -and
-      [int]$receipt.schemaVersion -eq 3
+      [int]$receipt.schemaVersion -eq 4
     )
     storeSubmission = (
       $receipt.PSObject.Properties.Name -contains 'storeSubmission' -and
@@ -485,13 +486,22 @@ try {
 
   $runtimeBehaviorNamespace =
     'http://schemas.microsoft.com/appx/manifest/uap/windows10/10'
-  $expectedPackageVersion = if (
-    $receipt.PSObject.Properties.Name -contains 'version'
-  ) {
-    ([string]$receipt.version) + '.0'
-  } else {
+  $expectedPackageVersion = [string]$receipt.packageVersion
+  $manifestPackageVersion = if ($null -eq $identityNode) {
     ''
+  } else {
+    $identityNode.GetAttribute('Version')
   }
+  $manifestPackageVersionParts = @($manifestPackageVersion.Split('.'))
+  $storeVersionPolicy = -not $StoreCandidate -or (
+    $manifestPackageVersionParts.Count -eq 4 -and
+    @(
+      $manifestPackageVersionParts |
+        Where-Object { $_ -notmatch '^\d{1,5}$' -or [int]$_ -gt 65535 }
+    ).Count -eq 0 -and
+    [int]$manifestPackageVersionParts[0] -gt 0 -and
+    [int]$manifestPackageVersionParts[3] -eq 0
+  )
   $applicationContract = (
     $applicationNodes.Count -eq 1 -and
     $applicationNode.GetAttribute('Id') -eq 'WorkspaceWidget' -and
@@ -562,6 +572,7 @@ try {
     identityMatches = $identityMatches
     identityContract = $identityNodes.Count -eq 1 -and
       $identityNode.GetAttribute('Version') -eq $expectedPackageVersion
+    storeVersionPolicy = $storeVersionPolicy
     storeIdentityPolicy = $storeIdentityPolicy
     x64 = $identityNodes.Count -eq 1 -and
       $identityNode.GetAttribute('ProcessorArchitecture') -eq 'x64'

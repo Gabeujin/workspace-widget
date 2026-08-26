@@ -1,7 +1,7 @@
 # Workspace Widget independent Windows 11 release checklist
 
 - Prepared: 2026-07-30
-- Target: Store MSIX 0.1.0, x64
+- Target: app release 0.1.0 / Store package identity 1.0.0.0, x64
 - Required environment: an independent supported Windows 11 device
 
 This checklist is intentionally not marked complete on the development
@@ -53,7 +53,7 @@ unredacted user-profile paths in the archived evidence.
 | A-03 | Compare package SHA-256 with the upload record | Hashes are byte-identical | `<Pass/Fail + hash>` |
 | A-04 | Inspect package contents for state, logs, private shortcuts, source-only tests, installers, and diagnostics | None are present | `<Pass/Fail + inventory>` |
 | A-05 | Verify `Package/Identity/Name`, Publisher, and PublisherDisplayName | Exact Partner Center values | `<Pass/Fail + redacted manifest excerpt>` |
-| A-06 | Verify architecture and OS target | x64; Windows.Desktop minimum 10.0.22000.0 | `<Pass/Fail>` |
+| A-06 | Verify package version, architecture, and OS target | package 1.0.0.0; x64; Windows.Desktop minimum 10.0.22000.0 | `<Pass/Fail>` |
 | A-07 | Verify capabilities and extensions | Only expected `runFullTrust` and one disabled `windows.startupTask` | `<Pass/Fail>` |
 
 ## B. Clean install and first launch

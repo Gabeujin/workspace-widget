@@ -146,6 +146,7 @@ step that requires the exact Partner Center Product identity:
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
   -Version 0.1.0 `
+  -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
   -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.0 `
@@ -158,6 +159,11 @@ from a clean Git checkout, requires deterministic compilation, rechecks that
 the checkout stayed clean, and invokes the Store-candidate verifier before
 returning success. Microsoft validates and re-signs accepted MSIX submissions.
 Do not sideload or distribute the unsigned producer file.
+
+`Version` is the application release label. `PackageVersion` is the four-part
+Microsoft Store package identity version. Store packages require a nonzero first
+segment and reserve the fourth segment as `0`, so the `0.1.0` release candidate
+uses package version `1.0.0.0`.
 
 ## Verify
 

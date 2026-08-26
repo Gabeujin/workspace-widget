@@ -947,6 +947,8 @@ $checks = [ordered]@{
     $msixManifestContent -match 'TaskId="WorkspaceWidgetStartup"' -and
     $msixManifestContent -match 'rescap:Capability Name="runFullTrust"' -and
     $msixBuilderContent -match '\[switch\]\$StoreSubmission' -and
+    $msixBuilderContent -match '\[string\]\$PackageVersion' -and
+    $msixBuilderContent -match 'nonzero first segment' -and
     $msixBuilderContent -match 'Partner Center Product identity' -and
     $msixBuilderContent -match 'store-package-receipt\.json' -and
     $msixBuilderContent -match 'scripts\\Set-WorkspaceWidgetAutostart\.ps1' -and
@@ -959,6 +961,7 @@ $checks = [ordered]@{
     $msixVerifierContent -match '\[switch\]\$StoreCandidate' -and
     $msixVerifierContent -match 'receiptFilesMatchPackage' -and
     $msixVerifierContent -match 'producerPackageUnsigned' -and
+    $msixVerifierContent -match 'storeVersionPolicy' -and
     $msixVerifierContent -match 'startupTaskContract' -and
     $msixVerifierContent -match 'capabilityAllowlist' -and
     $msixVerifierContent -match 'committedBuildInputs'
