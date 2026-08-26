@@ -1,6 +1,6 @@
 # Microsoft Store Partner Center 등록 및 제출 가이드
 
-기준일: 2026-08-25
+기준일: 2026-08-26
 
 Workspace Widget의 공개 배포 경로는 **Microsoft Store용 MSIX**입니다. 저장소의
 Inno Setup EXE는 로컬 개발과 이전 설치 마이그레이션 검증에만 사용하며 공개
@@ -149,20 +149,75 @@ Partner Center에서 새 submission을 만들고 다음 섹션을 완료합니�
 구조는 [MSIX 앱 제출 만들기](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission)를
 기준으로 합니다.
 
+### 현재 속성 화면에서 먼저 바꿀 값
+
+첨부된 화면처럼 첫 범주가 `Utilities + tools`, 보조 범주가
+`Health + fitness`로 되어 있다면 다음 권장값으로 바꿉니다.
+
+| Partner Center 필드 | 권장 입력 | 필수 여부 | 선택 근거 |
+| --- | --- | --- | --- |
+| 범주(Primary category) | `Productivity` | 필수 | 앱·폴더·URL·로컬 서비스를 빠르게 실행해 작업 효율을 높이는 것이 제품의 주된 가치입니다. |
+| 하위 범주(Primary subcategory) | 선택하지 않음 | 선택 | Microsoft의 현재 분류표에서 `Productivity`에는 하위 범주가 없습니다. |
+| 보조 범주(Secondary category) | `Developer tools` | 선택 | Health 확인과 로컬 Node.js 서비스 시작은 개발자 작업 흐름에도 해당합니다. |
+| 보조 하위 범주 | 화면에 별도 필드가 나타날 때만 `Utilities` | 선택 | `Utilities`는 `Developer tools`의 하위 범주이며 `Productivity`의 하위 범주가 아닙니다. 일반 화면에 보조 하위 범주 필드가 없으면 입력하지 않습니다. |
+
+`Health + fitness`는 이 앱의 기능·대상과 맞지 않으므로 선택하지 않습니다.
+`Utilities + tools`도 가능한 대안이지만, 첫 제출의 주 분류는 전체 런처·작업 흐름을
+더 잘 설명하는 `Productivity`를 사용합니다. 제품 방향이 개발자 전용 도구로
+바뀌는 경우에만 `Developer tools > Utilities`를 주 범주로 재검토합니다.
+
+Microsoft는 범주를 필수, 하위 범주와 보조 범주를 선택 항목으로 설명합니다.
+문서와 실제 화면이 다르면 제출 시점의 Partner Center 선택지를 최종 기준으로
+삼고, 선택한 값을 스크린샷 또는 텍스트 receipt로 보존합니다. 현재 분류 목록은
+[MSIX 앱 범주 및 하위 범주](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/categories-and-subcategories)와
+[MSIX 앱 속성 입력](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/enter-app-properties)을
+확인합니다.
+
+### 입력 전 고정 증빙
+
+- [ ] 제출 대상 source commit과 clean working tree를 기록합니다.
+- [ ] exact MSIX 경로·SHA-256, build receipt·검증 receipt, source manifest를
+      같은 release evidence 폴더에 보존합니다.
+- [ ] WACK 결과와 악성코드 검사 결과가 exact MSIX를 가리키는지 확인합니다.
+- [ ] 개인정보처리방침·제품·지원 URL이 HTTPS 200으로 로그인 없이 열리고,
+      정책 날짜와 지원 경로가 최신인지 확인합니다.
+- [ ] Store 서명 패키지가 아직 없으면 clean install/update/uninstall 결과를
+      완료로 표시하지 않고 `HOLD`로 남깁니다.
+
 ### Pricing and availability
 
-- 무료 앱 가격을 선택합니다.
-- 실제 지원 가능한 국가/지역만 선택합니다.
-- 첫 공개는 수동 게시 또는 제한된 공개 시점으로 두어 인증 직후 최종 확인할
-  시간을 확보합니다.
+- [ ] 가격은 `Free`로 선택하고 무료 평가판·인앱 구매·구독은 사용하지 않습니다.
+- [ ] 실제 지원 가능한 국가/지역만 선택합니다. 계정이 허용한다는 이유만으로
+      지원할 수 없는 시장까지 자동 선택하지 않습니다.
+- [ ] 대상 고객과 검색 가능성(discoverability)은 일반 Store 검색 공개를 목표로
+      하되, 인증 직후 점검이 필요하면 먼저 링크 전용 또는 수동 게시 옵션을
+      선택합니다.
+- [ ] 게시 시점은 첫 제출에서는 수동 게시 또는 충분한 지연 시간을 두어 Store
+      서명 설치본을 확인할 시간을 확보합니다.
+- [ ] Partner Center가 `*`로 표시한 시장·가격·게시 일정 필드가 모두 완료되었는지
+      섹션의 validation 상태로 확인합니다.
 
 ### Properties
 
-- 제품 범주와 하위 범주를 선택합니다.
-- 개인정보처리방침 URL로 공개된 HTTPS 주소를 입력합니다.
-- 시스템 요구사항에 Windows 11 x64와 WebView2 Evergreen Runtime을 명확히
-  적습니다.
-- 접근성 선언은 실제 검증한 항목만 선택합니다.
+- [ ] 범주 `Productivity`, 하위 범주 없음, 선택적 보조 범주
+      `Developer tools`를 위 결정표대로 입력합니다.
+- [ ] “개인정보에 접근·수집하거나 전송합니까?”에는 보수적으로 **예**를
+      선택합니다. Health URL, 웹 링크, HTTPS 미디어와 YouTube 연결에서 선택한
+      제3자에게 IP 주소와 요청 메타데이터가 직접 전송될 수 있기 때문입니다.
+- [ ] 개인정보처리방침 URL에
+      `https://gabeujin.github.io/workspace-widget/privacy/`를 입력합니다.
+- [ ] 제품 웹사이트에는 `https://gabeujin.github.io/workspace-widget/`, 지원 URL에는
+      `https://gabeujin.github.io/workspace-widget/support/`를 입력합니다.
+- [ ] 회사 계정에서 연락처가 필수로 표시되면 실제 응답 가능한 이메일·주소 등
+      법적 계정 정보를 입력합니다. 이를 공개 저장소 문서에 복사하지 않습니다.
+- [ ] 계정·로그인, 광고, 개발자 텔레메트리·분석, 인앱 구매·구독,
+      생성형 AI 기능은 `없음`으로 선언합니다.
+- [ ] 위치·연락처·카메라·마이크·Bluetooth 접근은 `없음`으로 선언합니다.
+- [ ] 지원 환경은 Windows Desktop, Windows 11 x64, 최소 OS build 22000으로
+      package receipt와 일치시킵니다. WebView2 Evergreen Runtime은 선택적
+      YouTube 미리보기 의존성으로 설명합니다.
+- [ ] 접근성·하드웨어 선언은 실제 검증한 항목만 선택하고, 키보드 또는 포인팅
+      장치를 최소 입력 장치로 기록합니다.
 
 Workspace Widget의 공개 개인정보처리방침은
 `https://gabeujin.github.io/workspace-widget/privacy/`이며, 제출 직전에 브라우저로
@@ -172,28 +227,52 @@ Workspace Widget의 공개 개인정보처리방침은
 
 ### Age ratings
 
-- IARC 질문에 앱 자체 기능만 기준으로 답합니다.
-- 사용자 지정 URL 또는 사용자가 선택한 로컬 프로젝트의 외부 콘텐츠를 앱이
-  직접 제공하는 콘텐츠처럼 과장하지 않습니다.
-- WebView2 YouTube 미리보기와 외부 브라우저 열기 동작은 정확히 설명합니다.
+- [ ] IARC의 모든 질문을 완료하고 최종 등급·질문지 receipt를 저장합니다.
+- [ ] 앱 자체에는 폭력, 성적 콘텐츠, 욕설, 약물, 도박·모의 도박, 광고,
+      구매, 채팅, 사용자 간 공유, 생성형 AI 기능이 없다고 실제 기능 기준으로
+      답합니다.
+- [ ] 사용자 지정 URL 또는 로컬 프로젝트의 외부 콘텐츠를 앱이 직접 제공하는
+      콘텐츠처럼 과장하지 않습니다.
+- [ ] 다만 외부 브라우저 열기와 사용자가 선택한 YouTube WebView2 미리보기가
+      있으므로 Internet/external content 관련 질문은 실제 포털 문구에 맞춰
+      사실대로 답합니다. 가장 낮은 등급을 얻기 위해 기능을 누락하지 않습니다.
 
 ### Packages
 
-- `-StoreSubmission`으로 만든 정확한 unsigned MSIX를 업로드합니다.
-- 업로드 후 표시되는 identity, version, x64 architecture, 최소 OS를 receipt와
-  대조합니다.
-- 잘못된 identity나 capability 경고가 있으면 제출을 진행하지 않습니다.
+- [ ] clean commit에서 `-StoreSubmission`으로 만든 정확한 unsigned MSIX 하나만
+      업로드합니다. 로컬 개발 서명본이나 Inno Setup EXE는 올리지 않습니다.
+- [ ] 업로드 전후 MSIX SHA-256이 release receipt와 같은지 확인합니다.
+- [ ] package analysis의 identity, publisher, version `0.1.0.0`, x64 architecture,
+      Windows Desktop 대상, 최소 OS build 22000을 receipt와 대조합니다.
+- [ ] `runFullTrust`와 `windows.startupTask` 선언이 예상대로 표시되는지 확인합니다.
+- [ ] Partner Center의 `Validated` 표시는 업로드 형식 검사를 통과했다는 뜻이지,
+      제출 전체 완료나 Microsoft 인증 통과를 뜻하지 않습니다.
+- [ ] identity·capability warning, 예상하지 않은 device family, hash 불일치가
+      있으면 제출하지 않고 원인을 수정한 새 clean commit에서 다시 빌드합니다.
 
 ### Store listings
 
-- `docs\STORE-LISTING-KIT.md`의 검토된 한국어·영어 설명을 사용합니다.
-- 기본 언어와 언어별 제목·설명·검색어가 서로 일치하는지 확인합니다.
-- Store 규격에 맞는 앱 아이콘과 실제 기능을 보여주는 스크린샷을 등록하고,
-  각 이미지의 표시 결과와 접근 가능한 설명을 확인합니다.
-- “Microsoft가 보증한 보안 앱”처럼 인증 범위를 오해하게 하는 표현을 쓰지
-  않습니다.
-- 개인정보처리방침 URL과 지원 URL이 로그인 없이 HTTPS로 열리고, 지원 연락처가
-  실제로 응답하는지 확인합니다.
+- [ ] `docs\STORE-LISTING-KIT.md`의 검토된 `en-US`와 `ko-KR` 제품명, 짧은 설명,
+      전체 설명, 기능 목록을 각각 입력합니다.
+- [ ] 첫 제출의 `What's new`는 비워 둡니다. 설명 필드에는 HTML·코드·직접 URL을
+      넣지 않고 제품·개인정보·지원 전용 URL 필드를 사용합니다.
+- [ ] 기능 항목은 각 200자 이하, 최대 20개 제한 안에서 현재 10개 항목을
+      사용하고 실제 패키지 기능과 일치시킵니다.
+- [ ] Desktop 스크린샷은 최소 1장이 필요하지만, 현재 준비된 불투명 PNG 4장을
+      `STORE-LISTING-KIT.md`의 순서대로 각 언어 listing에 등록합니다.
+- [ ] 각 스크린샷과 앱 아이콘의 실제 Store 미리보기를 확인하고, 개인 정보,
+      사내 URL·경로, 개발용 오류, 미인증 보증 표현이 없는지 확대 검토합니다.
+- [ ] 제품명·패키지 표시명·설명·범주가 모두 “작업 흐름 런처”라는 주된 용도와
+      일치하는지 확인합니다. Health 기능만 보고 서버 관리 제품이나 보안 제품으로
+      과장해 분류하지 않습니다.
+- [ ] “Microsoft가 보증한 보안 앱”처럼 인증 범위를 오해하게 하는 표현을 쓰지
+      않습니다.
+- [ ] 개인정보처리방침·제품·지원 URL이 로그인 없이 HTTPS로 열리고 지원 경로가
+      실제로 동작하는지 다시 확인합니다.
+
+Store listing의 필수 필드와 이미지 요구사항은
+[Store listing 정보 추가 및 편집](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/add-and-edit-store-listing-info)을
+제출 직전에 다시 확인합니다.
 
 ### Submission options
 
@@ -208,6 +287,17 @@ Workspace Widget의 공개 개인정보처리방침은
 자동 실행하지 않는다는 점도 적습니다. `runFullTrust` 설명과 선언 요구사항은
 [앱 capability 선언 문서](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/app-capability-declarations)를
 따릅니다.
+
+인증 메모에는 다음도 함께 기록합니다.
+
+- [ ] 계정이나 로그인이 필요 없고 Start with Windows는 기본 비활성입니다.
+- [ ] 앱·파일·폴더·URL·스크립트는 사용자가 명시적으로 등록해야 실행됩니다.
+- [ ] Health URL은 등록한 항목에만 사용하며 로컬 Node 자동 시작은 loopback
+      Health 대상에만 허용됩니다.
+- [ ] 트레이 숨김·복원·완전 종료, Always on top, MIN UI, 시작 앱 설정의 재현
+      절차를 제공합니다.
+- [ ] WACK 결과와 알려진 제한, 아직 남은 clean lifecycle HOLD를 사실대로
+      요약합니다. 검증하지 않은 결과를 PASS로 쓰지 않습니다.
 
 ## 7. 인증 제출과 출시 후 확인
 
@@ -226,6 +316,11 @@ Workspace Widget의 공개 개인정보처리방침은
 7. 최종 Store URL, Store-signed package identity, certification 결과, source commit,
    MSIX SHA-256, WACK 결과를 한 release receipt로 보존합니다.
 
+최종 receipt에는 submission ID, 선택한 범주·하위 범주·보조 범주, IARC 결과,
+가격·시장·게시 방식, 언어별 listing, 업로드 MSIX SHA-256, source commit, WACK,
+악성코드 검사, certification report와 Store 서명 설치본 smoke test를 함께
+연결합니다.
+
 ## 제출 전 최종 HOLD 조건
 
 다음 중 하나라도 없으면 “Store 출시 완료”로 표시하지 않습니다.
@@ -237,6 +332,7 @@ Workspace Widget의 공개 개인정보처리방침은
 - WACK PASS
 - 개인정보처리방침·지원 URL live 확인
 - 기본 언어와 각 언어 listing, 아이콘·스크린샷 표시 검토
+- 실제 Partner Center에서 선택한 범주·하위 범주·보조 범주 receipt
 - IARC, markets, 가격, 배포 일정 완료
 - `runFullTrust` 설명과 인증 메모 연결, 모든 validation warning 해결
 - Partner Center certification PASS

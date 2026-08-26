@@ -31,8 +31,9 @@ All three `gabeujin.github.io` URLs returned HTTP 200 over HTTPS on
 | Product type | MSIX or PWA app |
 | Reserved product name | Workspace Widget |
 | Primary category | Productivity |
-| Secondary category | Developer tools |
-| Secondary subcategory, if offered | Utilities |
+| Primary subcategory | None — Productivity has no subcategory |
+| Secondary category | Developer tools, if the live form offers it |
+| Secondary subcategory | Utilities only if the live form exposes a separate field; otherwise leave unset |
 | Pricing | Free |
 | Markets | All markets allowed by the account and Microsoft policy |
 | Supported device family | Windows Desktop |
@@ -42,6 +43,13 @@ All three `gabeujin.github.io` URLs returned HTTP 200 over HTTPS on
 | Advertising | None |
 | In-app purchases | None |
 | Account or sign-in | None |
+
+`Utilities` is a subcategory of `Developer tools`, not of `Productivity`.
+The normal MSIX form may expose only a primary subcategory plus an optional
+secondary category. In that case choose `Productivity`, leave its subcategory
+blank, and choose `Developer tools` as the secondary category. Do not use
+`Health + fitness`. Record the actual live Partner Center selections in the
+release receipt because the taxonomy and form can change.
 
 The first submission must complete the IARC questionnaire in Partner Center.
 Do not manually choose a desired rating or copy a rating from this draft.
