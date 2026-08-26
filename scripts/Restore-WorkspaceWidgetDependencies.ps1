@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [string]$DependencyRoot,
-  [string]$WebView2Version = '1.0.4078.44'
+  [string]$WebView2Version = '1.0.4129.50'
 )
 
 Set-StrictMode -Version Latest
@@ -13,14 +13,19 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 if ([string]::IsNullOrWhiteSpace($DependencyRoot)) {
-  $DependencyRoot = Join-Path $ProjectRoot 'artifacts\dependencies'
+  $cacheBase = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    [System.IO.Path]::GetTempPath()
+  } else {
+    $env:LOCALAPPDATA
+  }
+  $DependencyRoot = Join-Path $cacheBase 'WorkspaceWidget\DependencyCache'
 }
 $DependencyRoot = [System.IO.Path]::GetFullPath($DependencyRoot)
 
 $supported = @{
-  '1.0.4078.44' = @{
-    sha256 = 'DC4D1D9168DF26B830398303E50210B6E1729F6CE5A7AC69D2C766852F489962'
-    uri = 'https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4078.44'
+  '1.0.4129.50' = @{
+    sha256 = 'D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2'
+    uri = 'https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4129.50'
   }
 }
 if (-not $supported.ContainsKey($WebView2Version)) {

@@ -24,7 +24,7 @@ certification.
 - Read-only MSIX/receipt verifier, privacy policy, strict stage-manifest
   allowlist validation, clean-source binding, and deterministic-toolchain gate.
 - Package-aware `windows.startupTask` integration for Store installations.
-- Pinned Node.js 24.18.1 LTS Windows x64 runtime and npm in the installer for
+- Pinned Node.js 24.19.0 LTS Windows x64 runtime and npm in the installer for
   explicitly configured offline local services.
 - Exact runtime content manifest and checksum validation for the bundled
   Node.js distribution.
@@ -41,13 +41,17 @@ certification.
   remains local development and migration tooling only.
 - Shortcut launches derive an explicit working directory so packaged child
   processes do not inherit the protected package install directory.
-- Node restore extracts from the checksum-validated archive for each build, and
-  release probes now run only after candidate and runtime hash validation.
+- Node restore reuses only a complete cache whose exact path, size, and SHA-256
+  manifest is valid, and release probes run only after candidate and runtime
+  hash validation.
 - Package-directory startup now prefers pnpm when available and falls back to
   the bundled npm runner.
 - The responsive toolbar switches to icon-only controls below 500 px, and
   shortcut cards and toolbar controls expose visible keyboard focus.
-- Updated the bundled Node.js runtime to the 24.18.1 security release.
+- Updated the bundled Node.js runtime to 24.19.0 LTS and the pinned WebView2 SDK
+  bridge to 1.0.4129.50.
+- Moved default build output and dependency caches outside the source checkout
+  under `%LOCALAPPDATA%\WorkspaceWidget`.
 
 ### Fixed
 
@@ -64,6 +68,18 @@ certification.
   normal `youtu.be` share links.
 
 ### Security
+
+- Installed packages now ignore environment and `PATH` Node overrides and use
+  only their package-local pinned runtime.
+- Added strict absolute URL validation, embedded-credential rejection,
+  loopback-only health endpoints for automatic Node startup, and execution-time
+  validation of local Node paths and arguments.
+- Offline restart now confirms before force-stopping a widget-owned process tree
+  and stops descendants together to prevent wrapper orphaning.
+- Added state, shortcut, log, local image/GIF, and managed cache resource limits;
+  unknown future state schemas fail closed.
+- Added a 30-day expiring official-security baseline and CI gate for Node.js,
+  WebView2, Store capability, package runtime, and local-path contamination.
 
 - The native host now loads only its executable-adjacent application root and
   rejects a caller-selected external project root.

@@ -1,10 +1,11 @@
 [CmdletBinding()]
 param(
   [string]$ProjectRoot,
+  [string]$DependencyRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '24.18.1',
+  [string]$Version = '24.19.0',
   [ValidatePattern('^[A-Fa-f0-9]{64}$')]
-  [string]$PackageSha256 = 'ec56b84a7551893ab2324ebdfdc4ab974a63b4781162600b68a1293cc3e53765'
+  [string]$PackageSha256 = '57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'
 )
 
 Set-StrictMode -Version Latest
@@ -16,7 +17,16 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 $distributionName = "node-v$Version-win-x64"
 $sourceUrl = "https://nodejs.org/download/release/v$Version/$distributionName.zip"
-$dependencyRoot = Join-Path $ProjectRoot "artifacts\dependencies\Node.js\$Version"
+if ([string]::IsNullOrWhiteSpace($DependencyRoot)) {
+  $cacheBase = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    [System.IO.Path]::GetTempPath()
+  } else {
+    $env:LOCALAPPDATA
+  }
+  $DependencyRoot = Join-Path $cacheBase 'WorkspaceWidget\DependencyCache'
+}
+$DependencyRoot = [System.IO.Path]::GetFullPath($DependencyRoot)
+$dependencyRoot = Join-Path $DependencyRoot "Node.js\$Version"
 $archivePath = Join-Path $dependencyRoot "$distributionName.zip"
 
 New-Item -ItemType Directory -Path $dependencyRoot -Force | Out-Null
@@ -52,11 +62,154 @@ if (Test-Path -LiteralPath $archivePath -PathType Leaf) {
   Move-Item -LiteralPath $downloadPath -Destination $archivePath
 }
 
-$runtimeRoot = $null
+$runtimeRoot = Join-Path $dependencyRoot 'runtime'
+$runtimeCacheManifestPath = Join-Path $dependencyRoot 'runtime-cache-manifest.json'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-if ([string]::IsNullOrWhiteSpace($runtimeRoot)) {
-  Add-Type -AssemblyName System.IO.Compression.FileSystem
-  $runtimeRoot = Join-Path $dependencyRoot ("runtime-" + (Get-Date -Format 'yyyyMMdd-HHmmssfff'))
+function Get-ArchiveRuntimeInventory {
+  param(
+    [Parameter(Mandatory = $true)][string]$ArchivePath,
+    [Parameter(Mandatory = $true)][string]$DistributionName
+  )
+
+  $inventory = [System.Collections.Generic.List[object]]::new()
+  $seenPaths = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase
+  )
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+  try {
+    if ($archive.Entries.Count -gt 15000) {
+      throw "The Node.js archive has an unexpected entry count: $($archive.Entries.Count)"
+    }
+    $totalUncompressedBytes = [int64](
+      $archive.Entries |
+        Measure-Object -Property Length -Sum |
+        Select-Object -ExpandProperty Sum
+    )
+    if ($totalUncompressedBytes -gt 600MB) {
+      throw 'The Node.js archive expands beyond the 600 MB safety limit.'
+    }
+
+    $runtimePrefix = "$DistributionName/"
+    foreach ($entry in $archive.Entries) {
+      $entryPath = $entry.FullName.Replace('\', '/')
+      if (-not $entryPath.StartsWith(
+          $runtimePrefix,
+          [System.StringComparison]::Ordinal
+        )) {
+        throw "Unexpected path in the Node.js archive: $entryPath"
+      }
+      $relativePath = $entryPath.Substring($runtimePrefix.Length)
+      if ([string]::IsNullOrWhiteSpace($relativePath)) {
+        continue
+      }
+      $segments = @($relativePath.Split('/') | Where-Object { $_.Length -gt 0 })
+      if (
+        $relativePath.StartsWith('/', [System.StringComparison]::Ordinal) -or
+        $relativePath.Contains(':') -or
+        $segments -contains '..'
+      ) {
+        throw "Unsafe path in the Node.js archive: $entryPath"
+      }
+      if ([string]::IsNullOrWhiteSpace($entry.Name)) {
+        continue
+      }
+
+      $normalizedPath = $relativePath.Replace('/', '\')
+      if (-not $seenPaths.Add($normalizedPath)) {
+        throw "Duplicate runtime path in the Node.js archive: $normalizedPath"
+      }
+      $sourceStream = $entry.Open()
+      $hasher = [System.Security.Cryptography.SHA256]::Create()
+      try {
+        $entryHash = [BitConverter]::ToString(
+          $hasher.ComputeHash($sourceStream)
+        ).Replace('-', '')
+      } finally {
+        $hasher.Dispose()
+        $sourceStream.Dispose()
+      }
+      $inventory.Add([pscustomobject][ordered]@{
+          path = $normalizedPath
+          size = [int64]$entry.Length
+          sha256 = $entryHash
+        })
+    }
+  } finally {
+    $archive.Dispose()
+  }
+  return @($inventory | Sort-Object path)
+}
+
+function Test-RuntimeMatchesArchive {
+  param(
+    [Parameter(Mandatory = $true)][string]$RuntimeRoot,
+    [Parameter(Mandatory = $true)][object[]]$ArchiveFiles
+  )
+
+  $actualPaths = @(
+    Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -File |
+      ForEach-Object { $_.FullName.Substring($RuntimeRoot.Length).TrimStart('\') } |
+      Sort-Object
+  )
+  $expectedPaths = @($ArchiveFiles | ForEach-Object { [string]$_.path } | Sort-Object)
+  if ([string]::Join('|', $actualPaths) -cne [string]::Join('|', $expectedPaths)) {
+    return $false
+  }
+  foreach ($entry in $ArchiveFiles) {
+    $cachedPath = Join-Path $RuntimeRoot ([string]$entry.path)
+    $cachedItem = Get-Item -LiteralPath $cachedPath
+    if (
+      [int64]$cachedItem.Length -ne [int64]$entry.size -or
+      -not [string]::Equals(
+        (Get-FileHash -LiteralPath $cachedPath -Algorithm SHA256).Hash,
+        [string]$entry.sha256,
+        [System.StringComparison]::OrdinalIgnoreCase
+      )
+    ) {
+      return $false
+    }
+  }
+  return $true
+}
+
+$archiveRuntimeFiles = @(
+  Get-ArchiveRuntimeInventory `
+    -ArchivePath $archivePath `
+    -DistributionName $distributionName
+)
+$runtimeIsReusable = $false
+if (
+  (Test-Path -LiteralPath $runtimeRoot -PathType Container) -and
+  (Test-Path -LiteralPath $runtimeCacheManifestPath -PathType Leaf)
+) {
+  $cacheManifest = Get-Content -LiteralPath $runtimeCacheManifestPath -Raw |
+    ConvertFrom-Json
+  $runtimeIsReusable = (
+    [string]$cacheManifest.version -eq $Version -and
+    [string]::Equals(
+      [string]$cacheManifest.packageSha256,
+      $PackageSha256,
+      [System.StringComparison]::OrdinalIgnoreCase
+    )
+  )
+  if ($runtimeIsReusable) {
+    $runtimeIsReusable = Test-RuntimeMatchesArchive `
+      -RuntimeRoot $runtimeRoot `
+      -ArchiveFiles $archiveRuntimeFiles
+  }
+}
+
+if (-not $runtimeIsReusable) {
+  if (
+    (Test-Path -LiteralPath $runtimeRoot) -or
+    (Test-Path -LiteralPath $runtimeCacheManifestPath -PathType Leaf)
+  ) {
+    throw (
+      "The cached Node.js runtime is incomplete or has the wrong version at '$runtimeRoot'. " +
+      'Review it manually or pass a fresh DependencyRoot; the restore will not overwrite it.'
+    )
+  }
   New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
 
   $archive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
@@ -126,6 +279,13 @@ if ([string]::IsNullOrWhiteSpace($runtimeRoot)) {
   }
 }
 
+if (-not (Test-RuntimeMatchesArchive -RuntimeRoot $runtimeRoot -ArchiveFiles $archiveRuntimeFiles)) {
+  throw (
+    "The restored Node.js runtime does not match the pinned official archive at '$archivePath'. " +
+    'The runtime was preserved for inspection and was not executed.'
+  )
+}
+
 $nodePath = Join-Path $runtimeRoot 'node.exe'
 $npmPath = Join-Path $runtimeRoot 'npm.cmd'
 $licensePath = Join-Path $runtimeRoot 'LICENSE'
@@ -140,17 +300,16 @@ if ([string]$actualVersion -ne "v$Version") {
   throw "Restored Node.js version mismatch. Expected v$Version but found $actualVersion."
 }
 
-$runtimeFiles = @(
-  Get-ChildItem -LiteralPath $runtimeRoot -Recurse -File |
-    Sort-Object FullName |
-    ForEach-Object {
-      [ordered]@{
-        path = $_.FullName.Substring($runtimeRoot.Length).TrimStart('\')
-        size = $_.Length
-        sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-      }
-    }
-)
+$runtimeFiles = @($archiveRuntimeFiles)
+if (-not (Test-Path -LiteralPath $runtimeCacheManifestPath -PathType Leaf)) {
+  [pscustomobject][ordered]@{
+    schemaVersion = 1
+    version = $Version
+    packageSha256 = $PackageSha256.ToUpperInvariant()
+    files = $runtimeFiles
+  } | ConvertTo-Json -Depth 6 |
+    Set-Content -LiteralPath $runtimeCacheManifestPath -Encoding UTF8
+}
 
 [pscustomobject][ordered]@{
   success = $true

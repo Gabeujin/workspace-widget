@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-08-25",
+  "reviewBy": "2026-09-24",
+  "platform": "Windows 11 x64",
+  "components": {
+    "node": {
+      "version": "24.19.0",
+      "archive": "node-v24.19.0-win-x64.zip",
+      "sha256": "57F71AB3652E797D84ACDDC79C81CC9FF1C6DDB2A1974CDB83F00FEE9BFF4C73",
+      "source": "https://nodejs.org/download/release/v24.19.0/node-v24.19.0-win-x64.zip",
+      "releaseNotes": "https://nodejs.org/en/blog/release/v24.19.0",
+      "securityAdvisories": "https://nodejs.org/en/blog/vulnerability/"
+    },
+    "webView2": {
+      "sdkVersion": "1.0.4129.50",
+      "packageSha256": "D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2",
+      "source": "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4129.50",
+      "releaseNotes": "https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/sdk/",
+      "runtimeReleaseNotes": "https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/runtime/",
+      "servicingModel": "Evergreen Runtime is serviced independently from the pinned SDK bridge."
+    }
+  },
+  "officialSources": [
+    "https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/app-capability-declarations",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/get-started",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/store-policies",
+    "https://learn.microsoft.com/en-us/windows/uwp/debug-test-perf/windows-app-certification-kit",
+    "https://nodejs.org/en/about/previous-releases",
+    "https://nodejs.org/en/blog/vulnerability/"
+  ],
+  "releasePolicy": {
+    "maximumReviewAgeDays": 30,
+    "maximumReleaseSecurityReceiptAgeDays": 3,
+    "emergencyReviewTriggers": [
+      "Node.js security release rated HIGH or CRITICAL",
+      "WebView2 Runtime security update affecting supported Windows 11 systems",
+      "Microsoft Store policy or restricted-capability requirement change"
+    ],
+    "storeMsixOnly": true,
+    "wackRequired": true,
+    "storeCertificationRequired": true,
+    "cleanWindows11StandardUserLifecycleRequired": true
+  }
+}

@@ -28,10 +28,15 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-  $outputParent = if ($StoreSubmission) {
-    Join-Path $env:LOCALAPPDATA 'WorkspaceWidget\StoreBuilds'
+  $buildBase = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    [System.IO.Path]::GetTempPath()
   } else {
-    Join-Path $ProjectRoot 'artifacts\store'
+    $env:LOCALAPPDATA
+  }
+  $outputParent = if ($StoreSubmission) {
+    Join-Path $buildBase 'WorkspaceWidget\StoreBuilds'
+  } else {
+    Join-Path $buildBase 'WorkspaceWidget\MsixBuilds'
   }
   $OutputRoot = Join-Path $outputParent (
     'WorkspaceWidget-' +
@@ -251,9 +256,14 @@ if ($StoreSubmission) {
   $postBuildSourceClean = $true
 } else {
   if ([string]::IsNullOrWhiteSpace($StageManifestPath)) {
+    $buildBase = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+      [System.IO.Path]::GetTempPath()
+    } else {
+      $env:LOCALAPPDATA
+    }
     $StageManifestPath = Join-Path `
-      $ProjectRoot `
-      "artifacts\WorkspaceWidget-$Version-manifest.json"
+      $buildBase `
+      "WorkspaceWidget\Builds\$Version\WorkspaceWidget-$Version-manifest.json"
   }
   $StageManifestPath = [System.IO.Path]::GetFullPath($StageManifestPath)
 }

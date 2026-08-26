@@ -12,6 +12,34 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
   $ProjectRoot = Split-Path -Parent $PSScriptRoot
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
+$StatePath = [System.IO.Path]::GetFullPath(
+  [Environment]::ExpandEnvironmentVariables($StatePath)
+)
+
+function Get-WorkspaceWidgetInstanceNames {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $normalizedPath = [System.IO.Path]::GetFullPath($Path).Trim().ToLowerInvariant()
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = [BitConverter]::ToString(
+      $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($normalizedPath))
+    ).Replace('-', '').ToLowerInvariant().Substring(0, 24)
+  } finally {
+    $hasher.Dispose()
+  }
+  $prefix = "Local\WorkspaceServiceWidget-$hash"
+  return [pscustomobject][ordered]@{
+    ready = "$prefix-Ready-v2"
+    show = "$prefix-Show-v3"
+    presented = "$prefix-Presented-v2"
+  }
+}
+
+$instanceNames = Get-WorkspaceWidgetInstanceNames -Path $StatePath
 
 $appScript = Join-Path $ProjectRoot 'app\WorkspaceWidget.ps1'
 if (-not (Test-Path -LiteralPath $appScript -PathType Leaf)) {
@@ -21,8 +49,7 @@ $appScript = [System.IO.Path]::GetFullPath($appScript)
 $appFilePattern = '(?i)-File\s+(?:"{0}"|{0})(?:\s|$)' -f [regex]::Escape($appScript)
 $nativeHost = @(
   $env:WORKSPACE_WIDGET_HOST_PATH,
-  (Join-Path $ProjectRoot 'WorkspaceWidget.exe'),
-  (Join-Path $ProjectRoot 'artifacts\staging\WorkspaceWidget\WorkspaceWidget.exe')
+  (Join-Path $ProjectRoot 'WorkspaceWidget.exe')
 ) |
   Where-Object {
     -not [string]::IsNullOrWhiteSpace($_) -and
@@ -35,7 +62,16 @@ if (-not [string]::IsNullOrWhiteSpace($nativeHost)) {
 
 function Get-WorkspaceWidgetProcess {
   $nativeProcesses = @(
-    Get-CimInstance Win32_Process -Filter "Name='WorkspaceWidget.exe'" -ErrorAction SilentlyContinue
+    Get-CimInstance Win32_Process -Filter "Name='WorkspaceWidget.exe'" -ErrorAction SilentlyContinue |
+      Where-Object {
+        -not [string]::IsNullOrWhiteSpace($nativeHost) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) -and
+        [string]::Equals(
+          [System.IO.Path]::GetFullPath([string]$_.ExecutablePath),
+          $nativeHost,
+          [System.StringComparison]::OrdinalIgnoreCase
+        )
+      }
   )
   $legacyProcesses = @(
     Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction SilentlyContinue |
@@ -55,16 +91,16 @@ function Request-ExistingWorkspaceWidget {
   $existingPresentedEvent = $null
   try {
     $existingReadyEvent = [System.Threading.EventWaitHandle]::OpenExisting(
-      'Local\WorkspaceServiceWidget-Ready-v1'
+      $instanceNames.ready
     )
     if (-not $existingReadyEvent.WaitOne([TimeSpan]::FromSeconds(3))) {
       return $null
     }
     $existingShowEvent = [System.Threading.EventWaitHandle]::OpenExisting(
-      'Local\WorkspaceServiceWidget-Show-v2'
+      $instanceNames.show
     )
     $existingPresentedEvent = [System.Threading.EventWaitHandle]::OpenExisting(
-      'Local\WorkspaceServiceWidget-Presented-v1'
+      $instanceNames.presented
     )
     $existingPresentedEvent.Reset() | Out-Null
     $existingShowEvent.Set() | Out-Null
@@ -110,7 +146,7 @@ $readyCreated = $false
 $readyEvent = [System.Threading.EventWaitHandle]::new(
   $false,
   [System.Threading.EventResetMode]::ManualReset,
-  'Local\WorkspaceServiceWidget-Ready-v1',
+  $instanceNames.ready,
   [ref]$readyCreated
 )
 $readyEvent.Reset() | Out-Null

@@ -5,7 +5,8 @@ param(
   [string]$TaskPath = '\',
   [string]$StatePath = (Join-Path $env:LOCALAPPDATA 'WorkspaceServiceWidget\state.json'),
   [string]$ShortcutPath = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Workspace Widget.lnk'),
-  [switch]$ExerciseAutostart
+  [switch]$ExerciseAutostart,
+  [switch]$InstalledProduct
 )
 
 Set-StrictMode -Version Latest
@@ -31,6 +32,15 @@ $releaseVerifier = Join-Path `
 $networkBoundaryTest = Join-Path `
   $ProjectRoot `
   'scripts\Test-WorkspaceWidgetNetworkBoundary.ps1'
+$officialSecurityTest = Join-Path `
+  $ProjectRoot `
+  'scripts\Test-OfficialSecurityBaseline.ps1'
+$officialSecurityBaseline = Join-Path `
+  $ProjectRoot `
+  'security\official-security-baseline.json'
+$officialSecurityReview = Join-Path `
+  $ProjectRoot `
+  'security\official-security-review.json'
 $iconBuilder = Join-Path $ProjectRoot 'scripts\New-WorkspaceWidgetIcon.ps1'
 $baseBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'
 $msixBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'
@@ -53,14 +63,65 @@ $gitIgnorePath = Join-Path $ProjectRoot '.gitignore'
 $rainmeterIni = Join-Path $env:APPDATA 'Rainmeter\Rainmeter.ini'
 $installedRoot = Join-Path $env:LOCALAPPDATA 'Programs\WorkspaceWidget'
 $installedHostPath = Join-Path $installedRoot 'WorkspaceWidget.exe'
-$runtimeProjectRoot = if (
-  Test-Path -LiteralPath $installedHostPath -PathType Leaf
-) {
-  $installedRoot
-} else {
-  $ProjectRoot
+$configuredHostCandidates = [System.Collections.Generic.List[string]]::new()
+if (Test-Path -LiteralPath $ShortcutPath -PathType Leaf) {
+  $configuredShell = $null
+  $configuredShortcut = $null
+  try {
+    $configuredShell = New-Object -ComObject WScript.Shell
+    $configuredShortcut = $configuredShell.CreateShortcut($ShortcutPath)
+    if (-not [string]::IsNullOrWhiteSpace([string]$configuredShortcut.TargetPath)) {
+      $configuredHostCandidates.Add([string]$configuredShortcut.TargetPath)
+    }
+  } finally {
+    if (
+      $null -ne $configuredShortcut -and
+      [Runtime.InteropServices.Marshal]::IsComObject($configuredShortcut)
+    ) {
+      [void][Runtime.InteropServices.Marshal]::ReleaseComObject($configuredShortcut)
+    }
+    if (
+      $null -ne $configuredShell -and
+      [Runtime.InteropServices.Marshal]::IsComObject($configuredShell)
+    ) {
+      [void][Runtime.InteropServices.Marshal]::ReleaseComObject($configuredShell)
+    }
+  }
 }
-$runtimeAppScript = Join-Path $runtimeProjectRoot 'app\WorkspaceWidget.ps1'
+$configuredTask = Get-ScheduledTask `
+  -TaskName $TaskName `
+  -TaskPath $TaskPath `
+  -ErrorAction SilentlyContinue
+if ($null -ne $configuredTask) {
+  $configuredHostCandidates.Add([string]$configuredTask.Actions[0].Execute)
+}
+$configuredHostCandidates.Add($installedHostPath)
+$installedPrefix = $installedRoot.TrimEnd('\') + '\'
+$installedHostPath = @(
+  $configuredHostCandidates |
+    Where-Object {
+      -not [string]::IsNullOrWhiteSpace($_) -and
+      (Test-Path -LiteralPath $_ -PathType Leaf) -and
+      [System.IO.Path]::GetFullPath($_).StartsWith(
+        $installedPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+      ) -and
+      [System.IO.Path]::GetFileName($_) -ieq 'WorkspaceWidget.exe'
+    } |
+    Select-Object -First 1
+)[0]
+$runtimeProjectRoot = $ProjectRoot
+$runtimeAppScript = $appScript
+if ($InstalledProduct) {
+  if (
+    [string]::IsNullOrWhiteSpace($installedHostPath) -or
+    -not (Test-Path -LiteralPath $installedHostPath -PathType Leaf)
+  ) {
+    throw 'InstalledProduct was requested, but no installed content-addressed host was found.'
+  }
+  $runtimeProjectRoot = Split-Path -Parent $installedHostPath
+  $runtimeAppScript = Join-Path $runtimeProjectRoot 'app\WorkspaceWidget.ps1'
+}
 
 if (-not (Test-Path -LiteralPath $shortcutFixtureRoot -PathType Container)) {
   New-Item -ItemType Directory -Path $shortcutFixtureRoot -Force | Out-Null
@@ -108,6 +169,9 @@ $requiredFiles = @(
   $nodeRestoreScript,
   $releaseVerifier,
   $networkBoundaryTest,
+  $officialSecurityTest,
+  $officialSecurityBaseline,
+  $officialSecurityReview,
   $iconBuilder,
   $baseBuilder,
   $msixBuilder,
@@ -147,6 +211,14 @@ $probe = & powershell.exe `
   -ProjectRoot $runtimeProjectRoot `
   -StatePath $StatePath `
   -Probe | ConvertFrom-Json
+$portListener = [System.Net.Sockets.TcpListener]::new(
+  [System.Net.IPAddress]::Loopback,
+  0
+)
+$portListener.Start()
+$startupProbePort = ([System.Net.IPEndPoint]$portListener.LocalEndpoint).Port
+$portListener.Stop()
+$startupProbeNonce = [guid]::NewGuid().ToString('N')
 $startupProbe = & powershell.exe `
   -NoProfile `
   -NonInteractive `
@@ -156,8 +228,9 @@ $startupProbe = & powershell.exe `
   -ProjectRoot $runtimeProjectRoot `
   -StartupProbe `
   -StartupProbeTarget $nodeFixture `
-  -StartupProbeHealth 'http://127.0.0.1:43999/health' `
-  -StartupProbeArgs '43999' | ConvertFrom-Json
+  -StartupProbeHealth "http://127.0.0.1:$startupProbePort/health" `
+  -StartupProbeArgs "$startupProbePort $startupProbeNonce" `
+  -StartupProbeExpectedToken $startupProbeNonce | ConvertFrom-Json
 $shortcutProbe = & powershell.exe `
   -NoProfile `
   -NonInteractive `
@@ -173,6 +246,93 @@ $geometryProbe = & powershell.exe `
   -File $appScript `
   -ProjectRoot $ProjectRoot `
   -GeometryProbe | ConvertFrom-Json
+$stateRecoveryRoot = Join-Path `
+  ([System.IO.Path]::GetTempPath()) `
+  ('WorkspaceWidgetStateRecovery-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $stateRecoveryRoot -Force | Out-Null
+$stateRecoveryPath = Join-Path $stateRecoveryRoot 'state.json'
+$futureState = Get-Content -LiteralPath $defaultStatePath -Raw | ConvertFrom-Json
+$futureState.schemaVersion = 99
+$previousState = Get-Content -LiteralPath $defaultStatePath -Raw | ConvertFrom-Json
+[System.IO.File]::WriteAllText(
+  $stateRecoveryPath,
+  ($futureState | ConvertTo-Json -Depth 10),
+  [System.Text.UTF8Encoding]::new($false)
+)
+[System.IO.File]::WriteAllText(
+  "$stateRecoveryPath.previous",
+  ($previousState | ConvertTo-Json -Depth 10),
+  [System.Text.UTF8Encoding]::new($false)
+)
+$futureStateHashBefore = (Get-FileHash -LiteralPath $stateRecoveryPath -Algorithm SHA256).Hash
+$futurePreviousHashBefore = (Get-FileHash -LiteralPath "$stateRecoveryPath.previous" -Algorithm SHA256).Hash
+$futureStateProbeOutput = @(
+  & powershell.exe `
+    -NoProfile `
+    -NonInteractive `
+    -STA `
+    -ExecutionPolicy Bypass `
+    -File $appScript `
+    -ProjectRoot $ProjectRoot `
+    -StatePath $stateRecoveryPath `
+    -StateLifecycleProbe 2>&1
+)
+$futureStateProbeExit = $LASTEXITCODE
+$futureStateProbe = ($futureStateProbeOutput -join [Environment]::NewLine) |
+  ConvertFrom-Json
+$futureStateHashAfter = (Get-FileHash -LiteralPath $stateRecoveryPath -Algorithm SHA256).Hash
+$futurePreviousHashAfter = (Get-FileHash -LiteralPath "$stateRecoveryPath.previous" -Algorithm SHA256).Hash
+
+$malformedStatePath = Join-Path $stateRecoveryRoot 'malformed-state.json'
+[System.IO.File]::WriteAllText(
+  $malformedStatePath,
+  '{not valid json',
+  [System.Text.UTF8Encoding]::new($false)
+)
+[System.IO.File]::WriteAllText(
+  "$malformedStatePath.previous",
+  ($previousState | ConvertTo-Json -Depth 10),
+  [System.Text.UTF8Encoding]::new($false)
+)
+$stateRecoveryProbe = & powershell.exe `
+  -NoProfile `
+  -NonInteractive `
+  -STA `
+  -ExecutionPolicy Bypass `
+  -File $appScript `
+  -ProjectRoot $ProjectRoot `
+  -StatePath $malformedStatePath `
+  -Probe | ConvertFrom-Json
+
+$packageIsolationRoot = Join-Path `
+  ([System.IO.Path]::GetTempPath()) `
+  ('WorkspaceWidgetPackageIsolation-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $packageIsolationRoot -Force | Out-Null
+[System.IO.File]::WriteAllBytes(
+  (Join-Path $packageIsolationRoot 'WorkspaceWidget.exe'),
+  [byte[]]@(0)
+)
+$packageIsolationState = Join-Path $packageIsolationRoot 'state.json'
+Copy-Item -LiteralPath $defaultStatePath -Destination $packageIsolationState
+$previousNodeOverride = $env:WORKSPACE_WIDGET_NODE
+try {
+  $env:WORKSPACE_WIDGET_NODE = Join-Path $env:WINDIR 'System32\notepad.exe'
+  $packageIsolationProbe = & powershell.exe `
+    -NoProfile `
+    -NonInteractive `
+    -STA `
+    -ExecutionPolicy Bypass `
+    -File $appScript `
+    -ProjectRoot $packageIsolationRoot `
+    -StatePath $packageIsolationState `
+    -Probe | ConvertFrom-Json
+} finally {
+  if ($null -eq $previousNodeOverride) {
+    Remove-Item Env:WORKSPACE_WIDGET_NODE -ErrorAction SilentlyContinue
+  } else {
+    $env:WORKSPACE_WIDGET_NODE = $previousNodeOverride
+  }
+}
 
 $appContent = Get-Content -LiteralPath $appScript -Raw
 $hostContent = Get-Content -LiteralPath $hostSource -Raw
@@ -182,7 +342,7 @@ $autostartContent = Get-Content -LiteralPath $autostartScript -Raw
 $gitIgnoreContent = Get-Content -LiteralPath $gitIgnorePath -Raw
 $privateEvidenceIgnorePattern = '(?m)^' +
   [regex]::Escape(('qual' + 'ity/')) +
-  '$'
+  '\r?$'
 $nodeRestoreContent = Get-Content -LiteralPath $nodeRestoreScript -Raw
 $releaseVerifierContent = Get-Content -LiteralPath $releaseVerifier -Raw
 $baseBuilderContent = Get-Content -LiteralPath $baseBuilder -Raw
@@ -199,6 +359,14 @@ $taskInfo = if ($null -ne $task) {
   $null
 }
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$autostartProjectRoot = if (
+  -not [string]::IsNullOrWhiteSpace([string]$installedHostPath) -and
+  (Test-Path -LiteralPath $installedHostPath -PathType Leaf)
+) {
+  Split-Path -Parent $installedHostPath
+} else {
+  $runtimeProjectRoot
+}
 function Invoke-AutostartHelper {
   param(
     [ValidateSet('Get', 'Enable', 'Disable')]
@@ -212,7 +380,7 @@ function Invoke-AutostartHelper {
     -ExecutionPolicy Bypass `
     -File $autostartScript `
     -Action $Action `
-    -ProjectRoot $runtimeProjectRoot `
+    -ProjectRoot $autostartProjectRoot `
     -HostPath $installedHostPath `
     -TaskName $TaskName `
     -TaskPath $TaskPath
@@ -597,6 +765,7 @@ $checks = [ordered]@{
     $probe.supports.urlPortSubtitle -and
     $probe.supports.healthEndpoint -and
     $probe.supports.bundledNodeStartup -and
+    $probe.supports.offlineServerRecovery -and
     $probe.supports.statePersistence -and
     $probe.supports.trayLifecycle -and
     $probe.supports.minUiMode -and
@@ -668,9 +837,36 @@ $checks = [ordered]@{
     }).Count -eq 0
   healthAndNodeStartup = $startupProbe.success -and
     $startupProbe.statusCode -eq 200 -and
+    [bool]$startupProbe.expectedTokenMatched -and
+    [string]$startupProbe.health -eq "http://127.0.0.1:$startupProbePort/health" -and
     $startupProbe.bundledNodeVersion -match '^v\d+\.' -and
     $appContent -match 'Queue-NodeStartAndOpen' -and
     $appContent -match 'Get-NodePackageScript'
+  offlineServerRecovery = $appContent -match 'function Queue-NodeServerRecovery' -and
+    $appContent -match 'function Update-ServerRecoveryMenuItem' -and
+    $appContent -match "Header 'Check and restart server'" -and
+    $appContent -match "Header 'Configure server restart\.\.\.'" -and
+    $appContent -match '\$MenuItem\.Header = if \(\$healthKnown\) \{ ''Restart server'' \}' -and
+    $appContent -match '\$MenuItem\.IsEnabled = \$false' -and
+    $appContent -match 'openWhenHealthy = \$OpenWhenHealthy' -and
+    $appContent -match 'Stop-TrackedLocalServer -Item \$pendingOpen\.item -ConfirmForce' -and
+    $appContent -match 'function Stop-ProcessTree' -and
+    $appContent -match 'Unsaved server work may be lost'
+  packagedRuntimeIsolation = $appContent -match '\$packageRuntimeEnforced' -and
+    $appContent -match "'PackageLocal'" -and
+    $appContent -match "'PackageLocalMissing'" -and
+    $appContent -match '\$nodeCandidates = @\(\$packageNodePath\)' -and
+    [bool]$packageIsolationProbe.packageRuntimeEnforced -and
+    -not [bool]$packageIsolationProbe.bundledNodeAvailable -and
+    [string]$packageIsolationProbe.nodeRuntimeSource -eq 'PackageLocalMissing' -and
+    [string]::IsNullOrWhiteSpace([string]$packageIsolationProbe.bundledNodePath)
+  boundedStateAndMedia = $appContent -match '\$script:maximumStateBytes = 4MB' -and
+    $appContent -match '\$script:maximumShortcutCount = 250' -and
+    $appContent -match '\$script:maximumManagedCacheBytes = 128MB' -and
+    $appContent -match 'function Get-ValidatedLocalMediaInfo'
+  strictUrlAndStartupBoundary = $appContent -match 'function Get-ValidatedWebUri' -and
+    $appContent -match 'function Resolve-NodeStartupConfiguration' -and
+    $appContent -match 'Automatic Node startup requires a loopback health URL'
   wpfRuntime = $appContent -match 'PresentationFramework' -and
     $appContent -match 'AllowDrop="True"' -and
     $appContent -match 'ResizeMode="CanResize"' -and
@@ -766,18 +962,31 @@ $checks = [ordered]@{
     $msixVerifierContent -match 'startupTaskContract' -and
     $msixVerifierContent -match 'capabilityAllowlist' -and
     $msixVerifierContent -match 'committedBuildInputs'
-  releaseIntegrityBeforeExecution = $nodeRestoreContent -match '\$runtimeRoot = \$null' -and
+  releaseIntegrityBeforeExecution = $nodeRestoreContent -match '\$runtimeIsReusable = \$false' -and
+    $nodeRestoreContent -match '\$runtimeCacheManifestPath' -and
+    $nodeRestoreContent -match 'function Get-ArchiveRuntimeInventory' -and
+    $nodeRestoreContent -match 'function Test-RuntimeMatchesArchive' -and
+    $nodeRestoreContent -match 'Get-FileHash -LiteralPath \$cachedPath' -and
     $nodeRestoreContent -notmatch '\$cachedVersion = \(&' -and
     $releaseVerifierContent -match '\$preExecutionIntegrityFailures' -and
     $releaseVerifierContent -match 'Release candidate execution was refused' -and
     $releaseVerifierContent -match '\$mediaProbe = & powershell\.exe'
-  startupReadiness = $startContent -match 'WorkspaceServiceWidget-Ready-v1' -and
+  contentAddressedLocalInstall = $installContent -match 'Test-InstalledReleaseIntegrity' -and
+    $installContent -match 'releases\\\$releaseId' -and
+    $installContent -match 'will not force-stop it' -and
+    $installContent -match '\.partial-\$PID' -and
+    $installContent -match 'installer move-boundary check' -and
+    $installContent -match 'Move-Item -LiteralPath \$stageRoot -Destination \$partialReleaseRoot' -and
+    $installContent -notmatch 'Stop-Process'
+  startupReadiness = $startContent -match 'Get-WorkspaceWidgetInstanceNames' -and
+    $startContent -match '\$instanceNames\.ready' -and
     $startContent -match '\$readyEvent\.Reset\(\) \| Out-Null' -and
     $startContent -match '\$readyEvent\.WaitOne\(350\)' -and
     $startContent -match '\$appFilePattern' -and
     $startContent -match 'existingReadyEvent\.WaitOne' -and
     $startContent -match 'WorkspaceWidget\.exe' -and
-    $appContent -match 'WorkspaceServiceWidget-Ready-v1' -and
+    $appContent -match 'Get-WorkspaceWidgetInstanceNames' -and
+    $appContent -match '\$instanceNames\.ready' -and
     $appContent -match 'Add_ContentRendered' -and
     $appContent -match '\$readyEvent\.Set\(\)'
   youtubeIdentifiedWebViewRequest = $appContent -match 'function Get-YouTubeEmbedUri' -and
@@ -844,10 +1053,10 @@ $checks = [ordered]@{
     $appContent -match '\$downloadArgs\.Cancel = \$true' -and
     $appContent -match '\$uri\.DnsSafeHost -eq ''www\.youtube-nocookie\.com'''
   publicSourceHygiene = $gitIgnoreContent -match $privateEvidenceIgnorePattern -and
-    $gitIgnoreContent -match '(?m)^design/$' -and
-    $gitIgnoreContent -match '(?m)^\.env$' -and
-    $gitIgnoreContent -match '(?m)^\*\.pfx$' -and
-    $gitIgnoreContent -match '(?m)^packaging/msix/store-identity\.json$' -and
+    $gitIgnoreContent -match '(?m)^design/\r?$' -and
+    $gitIgnoreContent -match '(?m)^\.env\r?$' -and
+    $gitIgnoreContent -match '(?m)^\*\.pfx\r?$' -and
+    $gitIgnoreContent -match '(?m)^packaging/msix/store-identity\.json\r?$' -and
     @($defaultState.items).Count -eq 0 -and
     @($publicDefaultState.items).Count -eq 0 -and
     (
@@ -881,13 +1090,27 @@ $checks = [ordered]@{
     $appContent -match 'function Exit-WorkspaceWidget' -and
     $appContent -match 'AutomationName ''Hide to tray''' -and
     $appContent -match 'Add_Closing' -and
-    $startContent -match 'WorkspaceServiceWidget-Show-v2' -and
+    $startContent -match 'Get-WorkspaceWidgetInstanceNames' -and
+    $startContent -match '\$instanceNames\.show' -and
     $startContent -match 'System32\\WindowsPowerShell\\v1\.0\\powershell\.exe'
   persistence = $appContent -match 'Save-State' -and
     $appContent -match '\[System\.IO\.File\]::Replace' -and
     $appContent -match '\$StatePath\.previous' -and
+    $appContent -match '\[int\]\$candidateState\.schemaVersion -gt 4' -and
     $appContent -match 'LocationChanged' -and
     $appContent -match 'SizeChanged'
+  stateRecoveryFallback = [bool]$stateRecoveryProbe.success -and
+    [int]$stateRecoveryProbe.schemaVersion -eq 4 -and
+    [int]$stateRecoveryProbe.itemCount -eq 0 -and
+    [string]$stateRecoveryProbe.stateSourcePath -eq "$malformedStatePath.previous"
+  futureStateFailClosed = $futureStateProbeExit -ne 0 -and
+    $futureStateProbeExit -eq 3 -and
+    -not [bool]$futureStateProbe.success -and
+    [int]$futureStateProbe.exitCode -eq 3 -and
+    [string]$futureStateProbe.error -match 'newer than the supported schema 4' -and
+    $futureStateHashBefore -eq $futureStateHashAfter -and
+    $futurePreviousHashBefore -eq $futurePreviousHashAfter -and
+    $appContent -match 'catch \[System\.NotSupportedException\]'
   smoothWheelAndPaging = $appContent -match 'PreviewMouseWheel' -and
     $appContent -match 'scrollTarget' -and
     $appContent -match 'CompositionTarget.*add_Rendering' -and
@@ -909,7 +1132,18 @@ $checks = [ordered]@{
   taskInteractive = $null -ne $task -and $task.Principal.LogonType.ToString() -eq 'Interactive'
   taskLimited = $null -ne $task -and $task.Principal.RunLevel.ToString() -eq 'Limited'
   taskDetachedLauncher = $null -ne $task -and
+    -not [string]::IsNullOrWhiteSpace([string]$installedHostPath) -and
     $task.Actions[0].Execute -match '(?i)WorkspaceWidget\.exe$' -and
+    [string]::Equals(
+      [System.IO.Path]::GetFullPath([string]$task.Actions[0].Execute),
+      [System.IO.Path]::GetFullPath([string]$installedHostPath),
+      [System.StringComparison]::OrdinalIgnoreCase
+    ) -and
+    [string]::Equals(
+      [System.IO.Path]::GetFullPath([string]$task.Actions[0].WorkingDirectory).TrimEnd('\'),
+      [System.IO.Path]::GetFullPath((Split-Path -Parent $installedHostPath)).TrimEnd('\'),
+      [System.StringComparison]::OrdinalIgnoreCase
+    ) -and
     [string]::IsNullOrWhiteSpace([string]$task.Actions[0].Arguments) -and
     [string]$task.Settings.ExecutionTimeLimit -eq 'PT0S'
   taskStatusRecorded = $null -ne $taskInfo
@@ -933,6 +1167,7 @@ $failed = @($checks.GetEnumerator() | Where-Object { -not $_.Value })
   startupProbe = $startupProbe
   shortcutProbe = $shortcutProbe
   geometryProbe = $geometryProbe
+  stateRecoveryProbe = $stateRecoveryProbe
   autostart = $autostartStatus
   autostartRoundTrip = $autostartRoundTrip
   iconFrames = $iconFrames

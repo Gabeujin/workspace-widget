@@ -17,7 +17,12 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-  $OutputRoot = Join-Path $ProjectRoot 'artifacts'
+  $buildBase = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    [System.IO.Path]::GetTempPath()
+  } else {
+    $env:LOCALAPPDATA
+  }
+  $OutputRoot = Join-Path $buildBase "WorkspaceWidget\Builds\$Version"
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 $manifestPath = Join-Path $OutputRoot "WorkspaceWidget-$Version-manifest.json"
@@ -78,6 +83,7 @@ $expectedStageFiles = @(
   'docs\MEDIA-CUSTOMIZATION.md',
   'docs\ENTERPRISE-DEPLOYMENT.md',
   'docs\MICROSOFT-STORE-RELEASE.md',
+  'docs\PARTNER-CENTER-SUBMISSION-KO.md',
   'docs\AI-ASSISTED-DEVELOPMENT.md',
   'README.md',
   'PUBLIC-RELEASE-REVIEW.md',
@@ -167,6 +173,7 @@ $sourceStageMappings = @(
   [pscustomobject]@{ source='docs\MEDIA-CUSTOMIZATION.md'; stage='docs\MEDIA-CUSTOMIZATION.md' },
   [pscustomobject]@{ source='docs\ENTERPRISE-DEPLOYMENT.md'; stage='docs\ENTERPRISE-DEPLOYMENT.md' },
   [pscustomobject]@{ source='docs\MICROSOFT-STORE-RELEASE.md'; stage='docs\MICROSOFT-STORE-RELEASE.md' },
+  [pscustomobject]@{ source='docs\PARTNER-CENTER-SUBMISSION-KO.md'; stage='docs\PARTNER-CENTER-SUBMISSION-KO.md' },
   [pscustomobject]@{ source='docs\AI-ASSISTED-DEVELOPMENT.md'; stage='docs\AI-ASSISTED-DEVELOPMENT.md' },
   [pscustomobject]@{ source='README.md'; stage='README.md' },
   [pscustomobject]@{ source='PUBLIC-RELEASE-REVIEW.md'; stage='PUBLIC-RELEASE-REVIEW.md' },
@@ -315,6 +322,10 @@ $nodeDependency = @(
   $manifest.dependencies |
     Where-Object { [string]$_.name -eq 'Node.js' }
 ) | Select-Object -First 1
+$webView2Dependency = @(
+  $manifest.dependencies |
+    Where-Object { [string]$_.name -eq 'Microsoft.Web.WebView2' }
+) | Select-Object -First 1
 
 $checks = [ordered]@{
   manifestIdentity = (
@@ -344,6 +355,12 @@ $checks = [ordered]@{
     $mediaProbe.nativeLoaderAvailable -and
     $mediaProbe.youtubePrivacyEnhancedEmbed
   )
+  webView2DependencyPin = (
+    $null -ne $webView2Dependency -and
+    [string]$webView2Dependency.version -eq '1.0.4129.50' -and
+    [string]$webView2Dependency.packageSha256 -eq
+      'D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2'
+  )
   manifestCoverage = $manifestCoverage
   manifestHashes = $manifestMismatches.Count -eq 0
   sourceStageParity = $sourceStageMismatches.Count -eq 0
@@ -359,15 +376,15 @@ $checks = [ordered]@{
   )
   bundledNodeRuntime = (
     [string]$nodeRuntimeManifest.product -eq 'Node.js' -and
-    [string]$nodeRuntimeManifest.version -eq '24.18.1' -and
+    [string]$nodeRuntimeManifest.version -eq '24.19.0' -and
     [string]$nodeRuntimeManifest.packageSha256 -eq
-      'EC56B84A7551893AB2324EBDFDC4AB974A63B4781162600B68A1293CC3E53765' -and
+      '57F71AB3652E797D84ACDDC79C81CC9FF1C6DDB2A1974CDB83F00FEE9BFF4C73' -and
     [string]$nodeRuntimeManifest.sourceUrl -eq
-      'https://nodejs.org/download/release/v24.18.1/node-v24.18.1-win-x64.zip' -and
-    $nodeVersion -eq 'v24.18.1' -and
+      'https://nodejs.org/download/release/v24.19.0/node-v24.19.0-win-x64.zip' -and
+    $nodeVersion -eq 'v24.19.0' -and
     -not [string]::IsNullOrWhiteSpace($npmVersion) -and
     $null -ne $nodeDependency -and
-    [string]$nodeDependency.version -eq '24.18.1'
+    [string]$nodeDependency.version -eq '24.19.0'
   )
   nodeRuntimeHashes = $nodeRuntimeMismatches.Count -eq 0
   noSensitiveStageText = $sensitiveFindings.Count -eq 0

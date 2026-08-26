@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-08-25",
+  "validThrough": "2026-08-28",
+  "scope": "Workspace Widget 0.1.0 Windows 11 x64 release candidate dependencies",
+  "node": {
+    "candidateVersion": "24.19.0",
+    "latestLtsVersionObserved": "24.19.0",
+    "releaseIndex": "https://nodejs.org/dist/index.json",
+    "releaseNotes": "https://nodejs.org/en/blog/release/v24.19.0",
+    "securityAdvisories": "https://nodejs.org/en/blog/vulnerability/",
+    "disposition": "The pinned candidate matched the latest Node.js 24 LTS release observed on the official release index. Any newer Node.js security release invalidates this receipt."
+  },
+  "webView2": {
+    "candidateSdkVersion": "1.0.4129.50",
+    "latestStableSdkVersionObserved": "1.0.4129.50",
+    "sdkCompatibilityRuntimeObserved": "151.0.4129.50",
+    "sdkReleaseNotes": "https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/sdk/",
+    "runtimeReleaseNotes": "https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/runtime/",
+    "disposition": "The pinned SDK matched the latest stable SDK observed. Runtime 151.0.4129.50 is recorded only as the SDK-release compatibility observation, not as a Microsoft security minimum. A supported stable Evergreen Runtime, required API compatibility, and update-failure UX remain clean-Windows release gates."
+  },
+  "unresolvedHighOrCriticalAffectingCandidate": [],
+  "limitations": "This time-bounded receipt records an official-source review; it is not a malware scan, WACK result, Store certification, or substitute for emergency review when an official security release appears."
+}

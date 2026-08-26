@@ -3,10 +3,13 @@ param(
   [string]$ProjectRoot,
   [string]$StatePath = (Join-Path $env:LOCALAPPDATA 'WorkspaceServiceWidget\state.json'),
   [switch]$Probe,
+  [switch]$StateLifecycleProbe,
   [switch]$StartupProbe,
   [string]$StartupProbeTarget,
   [string]$StartupProbeHealth,
   [string]$StartupProbeArgs,
+  [string]$StartupProbeExpectedToken,
+  [switch]$StartupTargetProbe,
   [string]$ShortcutProbePath,
   [switch]$GeometryProbe,
   [switch]$MediaProbe,
@@ -43,24 +46,52 @@ $nativeHostPath = if (
 $runtimeRoot = Split-Path -Parent $StatePath
 $runtimeLog = Join-Path $runtimeRoot 'runtime.log'
 $projectRuntimeRoot = Join-Path $ProjectRoot 'runtime'
-$systemNode = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-$systemPnpm = Get-Command pnpm.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
-$systemNpm = Get-Command npm.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
-$nodeCandidates = @(
-  $env:WORKSPACE_WIDGET_NODE,
-  (Join-Path $projectRuntimeRoot 'node\node.exe'),
-  $(if ($null -ne $systemNode) { $systemNode.Source } else { $null })
-)
-$pnpmCandidates = @(
-  $env:WORKSPACE_WIDGET_PNPM,
-  (Join-Path $projectRuntimeRoot 'pnpm\pnpm.cmd'),
-  $(if ($null -ne $systemPnpm) { $systemPnpm.Source } else { $null })
-)
-$npmCandidates = @(
-  $env:WORKSPACE_WIDGET_NPM,
-  (Join-Path $projectRuntimeRoot 'node\npm.cmd'),
-  $(if ($null -ne $systemNpm) { $systemNpm.Source } else { $null })
-)
+$script:maximumStateBytes = 4MB
+$script:maximumShortcutCount = 250
+$script:maximumRuntimeLogBytes = 4MB
+$script:maximumManagedCacheBytes = 128MB
+$script:maximumLocalImageBytes = 64MB
+$script:maximumLocalVideoBytes = 2GB
+$script:maximumGifFrames = 240
+$script:maximumGifAggregatePixels = 256000000
+
+$packageNodePath = Join-Path $projectRuntimeRoot 'node\node.exe'
+$packageNpmPath = Join-Path $projectRuntimeRoot 'node\npm.cmd'
+$packagePnpmPath = Join-Path $projectRuntimeRoot 'pnpm\pnpm.cmd'
+$expectedPackageHostPath = Join-Path $ProjectRoot 'WorkspaceWidget.exe'
+$packageRuntimeEnforced = Test-Path `
+  -LiteralPath $expectedPackageHostPath `
+  -PathType Leaf
+if ($packageRuntimeEnforced) {
+  $nodeCandidates = @($packageNodePath)
+  $pnpmCandidates = @($packagePnpmPath)
+  $npmCandidates = @($packageNpmPath)
+  $nodeRuntimeSource = if (Test-Path -LiteralPath $packageNodePath -PathType Leaf) {
+    'PackageLocal'
+  } else {
+    'PackageLocalMissing'
+  }
+} else {
+  $systemNode = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+  $systemPnpm = Get-Command pnpm.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
+  $systemNpm = Get-Command npm.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
+  $nodeCandidates = @(
+    $packageNodePath,
+    $env:WORKSPACE_WIDGET_NODE,
+    $(if ($null -ne $systemNode) { $systemNode.Source } else { $null })
+  )
+  $pnpmCandidates = @(
+    $packagePnpmPath,
+    $env:WORKSPACE_WIDGET_PNPM,
+    $(if ($null -ne $systemPnpm) { $systemPnpm.Source } else { $null })
+  )
+  $npmCandidates = @(
+    $packageNpmPath,
+    $env:WORKSPACE_WIDGET_NPM,
+    $(if ($null -ne $systemNpm) { $systemNpm.Source } else { $null })
+  )
+  $nodeRuntimeSource = 'Unavailable'
+}
 $bundledNodePath = $nodeCandidates |
   Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
   Select-Object -First 1
@@ -70,6 +101,27 @@ $bundledPnpmPath = $pnpmCandidates |
 $bundledNpmPath = $npmCandidates |
   Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
   Select-Object -First 1
+if (-not $packageRuntimeEnforced -and -not [string]::IsNullOrWhiteSpace($bundledNodePath)) {
+  if ([string]::Equals(
+      [System.IO.Path]::GetFullPath($bundledNodePath),
+      [System.IO.Path]::GetFullPath($packageNodePath),
+      [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+    $nodeRuntimeSource = 'ProjectLocal'
+  } elseif (
+    -not [string]::IsNullOrWhiteSpace($env:WORKSPACE_WIDGET_NODE) -and
+    (Test-Path -LiteralPath $env:WORKSPACE_WIDGET_NODE -PathType Leaf) -and
+    [string]::Equals(
+      [System.IO.Path]::GetFullPath($bundledNodePath),
+      [System.IO.Path]::GetFullPath($env:WORKSPACE_WIDGET_NODE),
+      [System.StringComparison]::OrdinalIgnoreCase
+    )
+  ) {
+    $nodeRuntimeSource = 'DevelopmentOverride'
+  } else {
+    $nodeRuntimeSource = 'SystemPath'
+  }
+}
 function Write-RuntimeLog {
   param([string]$Message)
 
@@ -77,12 +129,47 @@ function Write-RuntimeLog {
     if (-not (Test-Path -LiteralPath $runtimeRoot)) {
       New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
     }
+    if (
+      (Test-Path -LiteralPath $runtimeLog -PathType Leaf) -and
+      (Get-Item -LiteralPath $runtimeLog).Length -ge $script:maximumRuntimeLogBytes
+    ) {
+      return
+    }
     $line = '{0} {1}' -f (Get-Date).ToString('o'), $Message
     [System.IO.File]::AppendAllText($runtimeLog, $line + [Environment]::NewLine)
   } catch {
     # Logging must never take the widget down.
   }
 }
+
+function Get-WorkspaceWidgetInstanceNames {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $normalizedPath = [System.IO.Path]::GetFullPath(
+    [Environment]::ExpandEnvironmentVariables($Path)
+  ).Trim().ToLowerInvariant()
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = [BitConverter]::ToString(
+      $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($normalizedPath))
+    ).Replace('-', '').ToLowerInvariant().Substring(0, 24)
+  } finally {
+    $hasher.Dispose()
+  }
+  $prefix = "Local\WorkspaceServiceWidget-$hash"
+  return [pscustomobject][ordered]@{
+    mutex = "$prefix-Mutex-v3"
+    requestMutex = "$prefix-PresentationRequest-v2"
+    ready = "$prefix-Ready-v2"
+    show = "$prefix-Show-v3"
+    presented = "$prefix-Presented-v2"
+  }
+}
+
+$instanceNames = Get-WorkspaceWidgetInstanceNames -Path $StatePath
 
 function Resolve-ShortcutRegistration {
   param(
@@ -407,19 +494,70 @@ if (-not (Test-Path -LiteralPath $defaultStatePath -PathType Leaf)) {
   throw "Default state not found at '$defaultStatePath'."
 }
 
-if ($Probe) {
-  $defaultState = Get-Content -LiteralPath $defaultStatePath -Raw | ConvertFrom-Json
-  $state = if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
-    Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
-  } else {
-    $defaultState
+function Get-ValidatedStateDocument {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string[]]$CandidatePaths
+  )
+
+  foreach ($candidate in $CandidatePaths) {
+    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+      continue
+    }
+    try {
+      $candidateLength = (Get-Item -LiteralPath $candidate).Length
+      if ($candidateLength -gt $script:maximumStateBytes) {
+        throw "State document exceeds the $($script:maximumStateBytes)-byte limit."
+      }
+      $candidateState = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json
+      if (
+        $null -ne $candidateState -and
+        $candidateState.PSObject.Properties.Name -contains 'schemaVersion' -and
+        [int]$candidateState.schemaVersion -gt 4
+      ) {
+        throw [System.NotSupportedException]::new(
+          "State schema $($candidateState.schemaVersion) is newer than the supported schema 4. " +
+          'The state file was left unchanged. Upgrade Workspace Widget before opening it.'
+        )
+      }
+      if (
+        $null -eq $candidateState -or
+        $candidateState.PSObject.Properties.Name -notcontains 'schemaVersion' -or
+        [int]$candidateState.schemaVersion -lt 2
+      ) {
+        throw 'Unsupported state schema.'
+      }
+      if (@($candidateState.items).Count -gt $script:maximumShortcutCount) {
+        throw "State contains more than $($script:maximumShortcutCount) shortcuts."
+      }
+      return [pscustomobject][ordered]@{
+        state = $candidateState
+        sourcePath = $candidate
+      }
+    } catch [System.NotSupportedException] {
+      Write-RuntimeLog "State candidate '$candidate' requires a newer Workspace Widget. $($_.Exception.Message)"
+      throw
+    } catch {
+      Write-RuntimeLog "State candidate '$candidate' could not be read. $($_.Exception.Message)"
+    }
   }
+  throw 'No valid state document was available.'
+}
+
+if ($Probe) {
+  $stateSelection = Get-ValidatedStateDocument -CandidatePaths @(
+    $StatePath,
+    "$StatePath.previous",
+    $defaultStatePath
+  )
+  $state = $stateSelection.state
 
   [pscustomobject]@{
     success = $true
     projectRoot = $ProjectRoot
     defaultStatePath = $defaultStatePath
     statePath = $StatePath
+    stateSourcePath = [string]$stateSelection.sourcePath
     stateExists = Test-Path -LiteralPath $StatePath -PathType Leaf
     schemaVersion = $state.schemaVersion
     itemCount = @($state.items).Count
@@ -437,6 +575,8 @@ if ($Probe) {
     )
     attachToDesktop = [bool]$state.window.attachToDesktop
     bundledNodePath = $bundledNodePath
+    nodeRuntimeSource = $nodeRuntimeSource
+    packageRuntimeEnforced = $packageRuntimeEnforced
     bundledNodeAvailable = -not [string]::IsNullOrWhiteSpace($bundledNodePath) -and
       (Test-Path -LiteralPath $bundledNodePath -PathType Leaf)
     bundledPackageRunner = if (
@@ -456,6 +596,7 @@ if ($Probe) {
       urlPortSubtitle = $true
       healthEndpoint = $true
       bundledNodeStartup = $true
+      offlineServerRecovery = $true
       statePersistence = $true
       capture = $true
       trayLifecycle = $true
@@ -1854,31 +1995,36 @@ $presentedEvent = $null
 $script:readySignalSent = $false
 if (
   -not $StartupProbe -and
+  -not $StartupTargetProbe -and
   [string]::IsNullOrWhiteSpace($RemoteAssetProbeSource) -and
   -not $NetworkBoundaryProbe
 ) {
   $showEvent = [System.Threading.EventWaitHandle]::new(
     $false,
     [System.Threading.EventResetMode]::AutoReset,
-    'Local\WorkspaceServiceWidget-Show-v2'
+    $instanceNames.show
   )
   $readyEvent = [System.Threading.EventWaitHandle]::new(
     $false,
     [System.Threading.EventResetMode]::ManualReset,
-    'Local\WorkspaceServiceWidget-Ready-v1'
+    $instanceNames.ready
   )
   $presentedEvent = [System.Threading.EventWaitHandle]::new(
     $false,
     [System.Threading.EventResetMode]::ManualReset,
-    'Local\WorkspaceServiceWidget-Presented-v1'
+    $instanceNames.presented
   )
 
   $createdNew = $false
-  $mutex = [System.Threading.Mutex]::new($true, 'Local\WorkspaceServiceWidget-v2', [ref]$createdNew)
+  $mutex = [System.Threading.Mutex]::new(
+    $true,
+    $instanceNames.mutex,
+    [ref]$createdNew
+  )
   if (-not $createdNew) {
     $requestMutex = [System.Threading.Mutex]::new(
       $false,
-      'Local\WorkspaceServiceWidget-PresentationRequest-v1'
+      $instanceNames.requestMutex
     )
     $requestMutexOwned = $false
     try {
@@ -2013,33 +2159,24 @@ function Show-StartupSplash {
   $script:splashWindow.ShowDialog() | Out-Null
 }
 
-if (-not $StartupProbe -and [string]::IsNullOrWhiteSpace($CapturePath)) {
+if (
+  -not $StartupProbe -and
+  -not $StartupTargetProbe -and
+  -not $StateLifecycleProbe -and
+  [string]::IsNullOrWhiteSpace($CapturePath)
+) {
   Show-StartupSplash -LogoPath (Join-Path $ProjectRoot 'assets\workspace-widget-logo.png')
 }
 
 function Read-State {
   try {
-    $loaded = $null
-    $selectedPath = $null
-    foreach ($candidate in @(
-        $StatePath,
-        "$StatePath.previous",
-        $defaultStatePath
-      )) {
-      if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-        continue
-      }
-      try {
-        $loaded = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json
-        $selectedPath = $candidate
-        break
-      } catch {
-        Write-RuntimeLog "State candidate '$candidate' could not be read. $($_.Exception.Message)"
-      }
-    }
-    if ($null -eq $loaded) {
-      throw 'No valid state document was available.'
-    }
+    $stateSelection = Get-ValidatedStateDocument -CandidatePaths @(
+      $StatePath,
+      "$StatePath.previous",
+      $defaultStatePath
+    )
+    $loaded = $stateSelection.state
+    $selectedPath = [string]$stateSelection.sourcePath
     if (
       -not [string]::Equals(
         $selectedPath,
@@ -2050,10 +2187,6 @@ function Read-State {
     ) {
       Write-RuntimeLog "Recovered widget state from '$selectedPath'."
     }
-    if ([int]$loaded.schemaVersion -lt 2) {
-      throw 'Unsupported state schema.'
-    }
-
     if ($loaded.window.PSObject.Properties.Name -notcontains 'alwaysOnTop') {
       $loaded.window | Add-Member -NotePropertyName alwaysOnTop -NotePropertyValue $false
     }
@@ -2098,6 +2231,9 @@ function Read-State {
     }
     $loaded.schemaVersion = 4
     return $loaded
+  } catch [System.NotSupportedException] {
+    Write-RuntimeLog "State read stopped to preserve a newer schema. $($_.Exception.Message)"
+    throw
   } catch {
     Write-RuntimeLog "State read failed; using defaults. $($_.Exception.Message)"
     $fallback = Get-Content -LiteralPath $defaultStatePath -Raw | ConvertFrom-Json
@@ -2134,7 +2270,14 @@ function Save-State {
     $script:state.window.alwaysOnTop = [bool]$script:alwaysOnTop
     $script:state.window.attachToDesktop = [bool]$script:attachToDesktopPreference
 
+    if (@($script:state.items).Count -gt $script:maximumShortcutCount) {
+      throw "State contains more than $($script:maximumShortcutCount) shortcuts."
+    }
     $json = $script:state | ConvertTo-Json -Depth 10
+    $jsonBytes = [System.Text.UTF8Encoding]::new($true).GetByteCount($json)
+    if ($jsonBytes -gt $script:maximumStateBytes) {
+      throw "State document exceeds the $($script:maximumStateBytes)-byte limit."
+    }
     $temporaryStatePath = '{0}.write-{1}-{2}.tmp' -f (
       $StatePath,
       $PID,
@@ -3057,6 +3200,7 @@ function Show-ItemDialog {
     }
     $creationProperties = New-Object Microsoft.Web.WebView2.Wpf.CoreWebView2CreationProperties
     $creationProperties.UserDataFolder = Join-Path $runtimeRoot 'IconPreviewWebView2'
+    $creationProperties.AdditionalBrowserArguments = '--disk-cache-size=33554432'
     $webView.CreationProperties = $creationProperties
     $webView.add_CoreWebView2InitializationCompleted({
         param($sender, $eventArgs)
@@ -3411,10 +3555,31 @@ function Show-ItemDialog {
         ) | Out-Null
         return
       }
-      if ($targetInput -notmatch '^https?://' -and -not (Test-Path -LiteralPath $targetInput)) {
+      if (
+        $null -eq $ExistingItem -and
+        @($script:state.items).Count -ge $script:maximumShortcutCount
+      ) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'Use an http/https URL or an existing local path.',
+          "Workspace supports up to $($script:maximumShortcutCount) shortcuts.",
+          'Workspace',
+          [System.Windows.MessageBoxButton]::OK,
+          [System.Windows.MessageBoxImage]::Information
+        ) | Out-Null
+        return
+      }
+      $targetInputUri = if ($targetInput -match '^https?://') {
+        Get-ValidatedWebUri -Value $targetInput
+      } else {
+        $null
+      }
+      if (
+        ($targetInput -match '^https?://' -and $null -eq $targetInputUri) -or
+        ($targetInput -notmatch '^https?://' -and -not (Test-Path -LiteralPath $targetInput))
+      ) {
+        [System.Windows.MessageBox]::Show(
+          $dialog,
+          'Use an absolute http/https URL without embedded credentials, or an existing local path.',
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -3434,7 +3599,15 @@ function Show-ItemDialog {
         return
       }
       $target = [string]$registration.target
-      if ($target -notmatch '^https?://' -and -not (Test-Path -LiteralPath $target)) {
+      $targetUri = if ($target -match '^https?://') {
+        Get-ValidatedWebUri -Value $target
+      } else {
+        $null
+      }
+      if (
+        ($target -match '^https?://' -and $null -eq $targetUri) -or
+        ($target -notmatch '^https?://' -and -not (Test-Path -LiteralPath $target))
+      ) {
         [System.Windows.MessageBox]::Show(
           $dialog,
           "The resolved target no longer exists:`n$target",
@@ -3477,10 +3650,15 @@ function Show-ItemDialog {
         }
       }
 
-      if (-not [string]::IsNullOrWhiteSpace($health) -and $health -notmatch '^https?://') {
+      $healthUri = if (-not [string]::IsNullOrWhiteSpace($health)) {
+        Get-ValidatedWebUri -Value $health
+      } else {
+        $null
+      }
+      if (-not [string]::IsNullOrWhiteSpace($health) -and $null -eq $healthUri) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'Health URL must begin with http:// or https://.',
+          'Health URL must be an absolute http/https URL without embedded credentials.',
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -3515,8 +3693,8 @@ function Show-ItemDialog {
             -Source $customIcon `
             -ConfiguredKind 'auto'
           if (
-            -not (Test-Path -LiteralPath $customIcon -PathType Leaf) -or
-            $customIconKind -notin @('image', 'gif')
+            $customIconKind -notin @('image', 'gif') -or
+            -not (Test-MediaSource -Source $customIcon -ConfiguredKind $customIconKind)
           ) {
             [System.Windows.MessageBox]::Show(
               $dialog,
@@ -3549,6 +3727,16 @@ function Show-ItemDialog {
         return
       }
       if (-not [string]::IsNullOrWhiteSpace($startupTarget)) {
+        if ($null -ne $healthUri -and -not (Test-LoopbackWebUri -Uri $healthUri)) {
+          [System.Windows.MessageBox]::Show(
+            $dialog,
+            'A Node start target can only be paired with a loopback health URL such as http://127.0.0.1:3000/health. Remote health monitoring remains available when no Node start target is configured.',
+            'Workspace',
+            [System.Windows.MessageBoxButton]::OK,
+            [System.Windows.MessageBoxImage]::Information
+          ) | Out-Null
+          return
+        }
         if (-not (Test-Path -LiteralPath $startupTarget)) {
           [System.Windows.MessageBox]::Show(
             $dialog,
@@ -3755,12 +3943,32 @@ function Test-HasNodeStartup {
   )
 }
 
+function Test-HasHealthCheck {
+  param($Item)
+
+  if (
+    $Item.PSObject.Properties.Name -notcontains 'health' -or
+    [string]::IsNullOrWhiteSpace([string]$Item.health)
+  ) {
+    return $false
+  }
+  return $null -ne (Get-ValidatedWebUri -Value ([string]$Item.health))
+}
+
 function Open-ItemTarget {
   param($Item)
 
   $target = [string]$Item.target
-  if ($target -notmatch '^https?://' -and -not (Test-Path -LiteralPath $target)) {
-    throw "The local target no longer exists: $target"
+  $targetUri = if ($target -match '^https?://') {
+    Get-ValidatedWebUri -Value $target
+  } else {
+    $null
+  }
+  if (
+    ($target -match '^https?://' -and $null -eq $targetUri) -or
+    ($target -notmatch '^https?://' -and -not (Test-Path -LiteralPath $target))
+  ) {
+    throw "The target is invalid or no longer exists: $target"
   }
 
   $launch = @{
@@ -3821,6 +4029,9 @@ function Get-NodePackageScript {
   }
 
   if (-not [string]::IsNullOrWhiteSpace($ConfiguredScript)) {
+    if ($ConfiguredScript -notmatch '^[A-Za-z0-9:_-]+$') {
+      throw 'The configured package script name contains unsupported characters.'
+    }
     if ($package.scripts.PSObject.Properties.Name -notcontains $ConfiguredScript) {
       throw "package.json does not define the '$ConfiguredScript' script."
     }
@@ -3835,6 +4046,65 @@ function Get-NodePackageScript {
   throw 'No start script was selected, and package.json has neither dev nor start.'
 }
 
+function Resolve-NodeStartupConfiguration {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Target,
+    [string]$Arguments
+  )
+
+  $expandedTarget = [Environment]::ExpandEnvironmentVariables($Target.Trim())
+  if ($expandedTarget -notmatch '^[A-Za-z]:\\') {
+    throw 'Node start targets must be local, drive-rooted paths. Relative, network, and device paths are not supported.'
+  }
+  $resolvedTarget = [System.IO.Path]::GetFullPath($expandedTarget)
+  if (
+    -not [System.IO.Path]::IsPathRooted($resolvedTarget) -or
+    $resolvedTarget.StartsWith('\\', [System.StringComparison]::Ordinal) -or
+    $resolvedTarget.StartsWith('\\?\', [System.StringComparison]::Ordinal) -or
+    $resolvedTarget -notmatch '^[A-Za-z]:\\'
+  ) {
+    throw 'Node start targets must be local, drive-rooted paths. Network and device paths are not supported.'
+  }
+  if (-not (Test-Path -LiteralPath $resolvedTarget)) {
+    throw "Node start target no longer exists: $resolvedTarget"
+  }
+  $configuredArguments = ([string]$Arguments).Trim()
+  if ($configuredArguments.Length -gt 2048 -or $configuredArguments -match '[\x00\r\n"]') {
+    throw 'Node start arguments contain unsupported characters or exceed 2,048 characters.'
+  }
+
+  if (Test-Path -LiteralPath $resolvedTarget -PathType Container) {
+    $packagePath = Join-Path $resolvedTarget 'package.json'
+    if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+      throw 'A Node project folder must contain package.json.'
+    }
+    if (
+      -not [string]::IsNullOrWhiteSpace($configuredArguments) -and
+      $configuredArguments -notmatch '^[A-Za-z0-9:_-]+$'
+    ) {
+      throw 'For a project folder, configure one package script name such as dev or start.'
+    }
+    $scriptName = Get-NodePackageScript `
+      -ProjectPath $resolvedTarget `
+      -ConfiguredScript $configuredArguments
+    return [pscustomobject][ordered]@{
+      kind = 'project'
+      target = $resolvedTarget
+      arguments = $scriptName
+    }
+  }
+
+  if ([System.IO.Path]::GetExtension($resolvedTarget) -notmatch '^\.(js|mjs|cjs)$') {
+    throw 'A Node entry file must end in .js, .mjs, or .cjs.'
+  }
+  return [pscustomobject][ordered]@{
+    kind = 'file'
+    target = $resolvedTarget
+    arguments = $configuredArguments
+  }
+}
+
 function Start-LocalServer {
   param($Item)
 
@@ -3845,7 +4115,12 @@ function Start-LocalServer {
     [string]::IsNullOrWhiteSpace($bundledNodePath) -or
     -not (Test-Path -LiteralPath $bundledNodePath -PathType Leaf)
   ) {
-    throw 'No supported Node runtime was found. Add runtime\node\node.exe or set WORKSPACE_WIDGET_NODE.'
+    $runtimeHelp = if ($packageRuntimeEnforced) {
+      'The package-local runtime is missing or damaged. Reinstall Workspace Widget.'
+    } else {
+      'Add runtime\node\node.exe or configure a development-only WORKSPACE_WIDGET_NODE override.'
+    }
+    throw "No supported Node runtime was found. $runtimeHelp"
   }
 
   $itemId = [string]$Item.id
@@ -3859,15 +4134,18 @@ function Start-LocalServer {
     }
   }
 
-  $startupTarget = [string]$Item.startupTarget
-  $startupArgs = [string]$Item.startupArgs
+  $startupConfiguration = Resolve-NodeStartupConfiguration `
+    -Target ([string]$Item.startupTarget) `
+    -Arguments ([string]$Item.startupArgs)
+  $startupTarget = [string]$startupConfiguration.target
+  $startupArgs = [string]$startupConfiguration.arguments
   $previousPath = $env:PATH
   $bundledNodeDirectory = Split-Path -Parent $bundledNodePath
   $bundledOverrideDirectory = Join-Path $projectRuntimeRoot 'bin\override'
 
   try {
     $env:PATH = "$bundledNodeDirectory;$bundledOverrideDirectory;$previousPath"
-    if (Test-Path -LiteralPath $startupTarget -PathType Container) {
+    if ($startupConfiguration.kind -eq 'project') {
       $packageRunnerPath = $bundledPnpmPath
       $packageRunnerName = 'pnpm'
       if (
@@ -3886,7 +4164,7 @@ function Start-LocalServer {
           'Add runtime\node\npm.cmd, runtime\pnpm\pnpm.cmd, or configure an override.'
         )
       }
-      $scriptName = Get-NodePackageScript -ProjectPath $startupTarget -ConfiguredScript $startupArgs
+      $scriptName = $startupArgs
       $process = Start-Process `
         -FilePath $packageRunnerPath `
         -ArgumentList "run `"$scriptName`"" `
@@ -3917,13 +4195,97 @@ function Start-LocalServer {
   return $true
 }
 
-function Queue-NodeStartAndOpen {
-  param($Item)
+function Stop-ProcessTree {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Diagnostics.Process]$Process
+  )
+
+  if ($Process.HasExited) {
+    return $true
+  }
+  $taskKillPath = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+  if (-not (Test-Path -LiteralPath $taskKillPath -PathType Leaf)) {
+    throw 'Windows taskkill.exe was not found.'
+  }
+  $taskKillOutput = @(& $taskKillPath /PID $Process.Id /T /F 2>&1)
+  try {
+    $Process.WaitForExit(5000)
+    $Process.Refresh()
+  } catch {
+    # The explicit process-state check below remains authoritative.
+  }
+  if (-not $Process.HasExited) {
+    throw "The tracked process tree did not stop. PID=$($Process.Id). $($taskKillOutput -join ' ')"
+  }
+  return $true
+}
+
+function Stop-TrackedLocalServer {
+  param(
+    $Item,
+    [switch]$ConfirmForce
+  )
+
+  $itemId = [string]$Item.id
+  if (-not $script:serverProcesses.ContainsKey($itemId)) {
+    return $true
+  }
+
+  $process = $script:serverProcesses[$itemId]
+  try {
+    if ($null -ne $process -and -not $process.HasExited) {
+      if ($ConfirmForce) {
+        $confirmation = [System.Windows.MessageBox]::Show(
+          $script:window,
+          "Workspace Widget will force-stop only the server process tree it started for '$($Item.name)' (PID $($process.Id)).`n`nUnsaved server work may be lost. Continue?",
+          'Force-stop local server',
+          [System.Windows.MessageBoxButton]::YesNo,
+          [System.Windows.MessageBoxImage]::Warning,
+          [System.Windows.MessageBoxResult]::No
+        )
+        if ($confirmation -ne [System.Windows.MessageBoxResult]::Yes) {
+          Write-RuntimeLog "Tracked server restart canceled for '$itemId'. PID=$($process.Id)"
+          return $false
+        }
+      }
+      Stop-ProcessTree -Process $process | Out-Null
+      Write-RuntimeLog "Stopped tracked server '$($Item.name)' before recovery. PID=$($process.Id)"
+    }
+    [void]$script:serverProcesses.Remove($itemId)
+    return $true
+  } catch {
+    Write-RuntimeLog "Tracked server stop failed for '$itemId'. $($_.Exception.Message)"
+    return $false
+  }
+}
+
+function Queue-NodeStart {
+  param(
+    $Item,
+    [bool]$OpenWhenHealthy,
+    [bool]$RestartTrackedProcess
+  )
+
+  if (-not (Test-HasNodeStartup -Item $Item)) {
+    throw 'This shortcut does not have a Node start target.'
+  }
+  if (-not (Test-HasHealthCheck -Item $Item)) {
+    throw 'This shortcut does not have a health URL.'
+  }
+  $healthUri = Get-ValidatedWebUri -Value ([string]$Item.health)
+  if (-not (Test-LoopbackWebUri -Uri $healthUri)) {
+    throw 'Automatic Node startup requires a loopback health URL.'
+  }
 
   $itemId = [string]$Item.id
   $knownHealthy = $script:healthStates.ContainsKey($itemId) -and [bool]$script:healthStates[$itemId]
   if ($knownHealthy) {
-    Open-ItemTarget -Item $Item
+    if ($OpenWhenHealthy) {
+      Open-ItemTarget -Item $Item
+    } else {
+      Show-Toast -Message "$($Item.name) is already online"
+    }
     return
   }
 
@@ -3932,19 +4294,70 @@ function Queue-NodeStartAndOpen {
     item = $Item
     startupRequested = $false
     deadline = (Get-Date).AddSeconds(30)
+    openWhenHealthy = $OpenWhenHealthy
+    restartTrackedProcess = $RestartTrackedProcess
   }
 
   if ($healthKnown) {
+    if ($RestartTrackedProcess) {
+      if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce)) {
+        Show-Toast -Message "Restart canceled for $($Item.name)"
+        return
+      }
+    }
     Start-LocalServer -Item $Item | Out-Null
     $pending.startupRequested = $true
-    Show-Toast -Message "Starting $($Item.name) with bundled Node"
+    $startVerb = if ($RestartTrackedProcess) { 'Restarting' } else { 'Starting' }
+    Show-Toast -Message "$startVerb $($Item.name) with bundled Node"
   } else {
-    Show-Toast -Message "Checking $($Item.name) before start"
+    $startPurpose = if ($RestartTrackedProcess) { 'restart' } else { 'start' }
+    Show-Toast -Message "Checking $($Item.name) before $startPurpose"
   }
 
   $script:pendingOpen[$itemId] = $pending
   $script:startupPollTimer.Start()
   Start-HealthCheck
+}
+
+function Queue-NodeStartAndOpen {
+  param($Item)
+
+  Queue-NodeStart `
+    -Item $Item `
+    -OpenWhenHealthy $true `
+    -RestartTrackedProcess $false
+}
+
+function Queue-NodeServerRecovery {
+  param($Item)
+
+  Queue-NodeStart `
+    -Item $Item `
+    -OpenWhenHealthy $false `
+    -RestartTrackedProcess $true
+}
+
+function Update-ServerRecoveryMenuItem {
+  param($MenuItem)
+
+  if ($null -eq $MenuItem -or $null -eq $MenuItem.Tag) {
+    return
+  }
+
+  $item = $MenuItem.Tag
+  $itemId = [string]$item.id
+  $healthKnown = $script:healthStates.ContainsKey($itemId)
+  $healthy = $healthKnown -and [bool]$script:healthStates[$itemId]
+  if ($healthy) {
+    $MenuItem.Header = 'Server is online'
+    $MenuItem.ToolTip = 'The configured health endpoint is responding.'
+    $MenuItem.IsEnabled = $false
+    return
+  }
+
+  $MenuItem.Header = if ($healthKnown) { 'Restart server' } else { 'Check and restart server' }
+  $MenuItem.ToolTip = 'Runs the trusted Node start target and waits for the health endpoint.'
+  $MenuItem.IsEnabled = $true
 }
 
 function Launch-Item {
@@ -4027,6 +4440,135 @@ function Get-YouTubeVideoId {
   return $null
 }
 
+function Get-ValidatedWebUri {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Value
+  )
+
+  $candidate = $null
+  if (-not [uri]::TryCreate(
+      $Value.Trim(),
+      [System.UriKind]::Absolute,
+      [ref]$candidate
+    )) {
+    return $null
+  }
+  if (
+    $candidate.Scheme -notin @('http', 'https') -or
+    [string]::IsNullOrWhiteSpace($candidate.Host) -or
+    -not [string]::IsNullOrWhiteSpace($candidate.UserInfo)
+  ) {
+    return $null
+  }
+  return $candidate
+}
+
+function Test-LoopbackWebUri {
+  param(
+    [Parameter(Mandatory = $true)]
+    [uri]$Uri
+  )
+
+  return (
+    $Uri.IsLoopback -or
+    [string]::Equals(
+      $Uri.DnsSafeHost,
+      'localhost',
+      [System.StringComparison]::OrdinalIgnoreCase
+    ) -or
+    $Uri.DnsSafeHost.EndsWith(
+      '.localhost',
+      [System.StringComparison]::OrdinalIgnoreCase
+    )
+  )
+}
+
+function Get-ValidatedLocalMediaInfo {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('image', 'gif', 'video')]
+    [string]$Kind
+  )
+
+  $resolved = [System.IO.Path]::GetFullPath(
+    [Environment]::ExpandEnvironmentVariables($Path)
+  )
+  if (
+    -not [System.IO.Path]::IsPathRooted($resolved) -or
+    $resolved.StartsWith('\\', [System.StringComparison]::Ordinal) -or
+    -not (Test-Path -LiteralPath $resolved -PathType Leaf)
+  ) {
+    throw 'Local media must be an existing file on a local drive.'
+  }
+  $file = Get-Item -LiteralPath $resolved
+  $maximumBytes = if ($Kind -eq 'video') {
+    $script:maximumLocalVideoBytes
+  } else {
+    $script:maximumLocalImageBytes
+  }
+  if ($file.Length -gt $maximumBytes) {
+    throw "Local $Kind media exceeds the supported file-size limit."
+  }
+  if ($Kind -eq 'video') {
+    return [pscustomobject]@{
+      path = $resolved
+      byteLength = [long]$file.Length
+      frameCount = 0
+      aggregatePixels = 0
+    }
+  }
+
+  $stream = [System.IO.File]::Open(
+    $resolved,
+    [System.IO.FileMode]::Open,
+    [System.IO.FileAccess]::Read,
+    [System.IO.FileShare]::Read
+  )
+  try {
+    $decoder = [System.Windows.Media.Imaging.BitmapDecoder]::Create(
+      $stream,
+      [System.Windows.Media.Imaging.BitmapCreateOptions]::DelayCreation,
+      [System.Windows.Media.Imaging.BitmapCacheOption]::None
+    )
+    $frames = @($decoder.Frames)
+    if ($frames.Count -eq 0) {
+      throw 'The image contains no readable frames.'
+    }
+    if ($Kind -eq 'image' -and $frames.Count -gt 32) {
+      throw 'Static image containers are limited to 32 embedded frames.'
+    }
+    if ($Kind -eq 'gif' -and $frames.Count -gt $script:maximumGifFrames) {
+      throw "GIF media is limited to $($script:maximumGifFrames) frames."
+    }
+    $aggregatePixels = [long]0
+    foreach ($frame in $frames) {
+      $pixels = [long]$frame.PixelWidth * [long]$frame.PixelHeight
+      if (
+        $frame.PixelWidth -gt 8192 -or
+        $frame.PixelHeight -gt 8192 -or
+        $pixels -gt 32000000
+      ) {
+        throw 'Image dimensions exceed 8192 px per side or 32 megapixels.'
+      }
+      $aggregatePixels += $pixels
+      if ($aggregatePixels -gt $script:maximumGifAggregatePixels) {
+        throw 'Animated image frame dimensions exceed the supported memory budget.'
+      }
+    }
+    return [pscustomobject]@{
+      path = $resolved
+      byteLength = [long]$file.Length
+      frameCount = $frames.Count
+      aggregatePixels = $aggregatePixels
+    }
+  } finally {
+    $stream.Dispose()
+  }
+}
+
 function Resolve-MediaKind {
   param(
     [string]$Source,
@@ -4090,7 +4632,12 @@ function Test-MediaSource {
       return $false
     }
   }
-  return Test-Path -LiteralPath $Source -PathType Leaf
+  try {
+    Get-ValidatedLocalMediaInfo -Path $Source -Kind $kind | Out-Null
+    return $true
+  } catch {
+    return $false
+  }
 }
 
 function Get-Sha256Hex {
@@ -4139,6 +4686,32 @@ function Get-SignedRemoteIconExpiry {
   }
 }
 
+function Assert-ManagedCacheCapacity {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$CacheRoot,
+    [long]$AdditionalBytes
+  )
+
+  if ($AdditionalBytes -lt 0) {
+    throw 'Managed-cache growth cannot be negative.'
+  }
+  $currentBytes = [long]0
+  if (Test-Path -LiteralPath $CacheRoot -PathType Container) {
+    $measurement = Get-ChildItem -LiteralPath $CacheRoot -File -ErrorAction Stop |
+      Measure-Object -Property Length -Sum
+    if ($null -ne $measurement.Sum) {
+      $currentBytes = [long]$measurement.Sum
+    }
+  }
+  if (($currentBytes + $AdditionalBytes) -gt $script:maximumManagedCacheBytes) {
+    throw (
+      'The managed media cache has reached its 128 MB safety limit. ' +
+      'Close Workspace Widget and review the per-user IconCache or MediaCache before adding more media.'
+    )
+  }
+}
+
 function Save-NormalizedCustomIconBitmap {
   param(
     [Parameter(Mandatory = $true)]
@@ -4160,6 +4733,9 @@ function Save-NormalizedCustomIconBitmap {
   if (Test-Path -LiteralPath $CachePath -PathType Leaf) {
     return $CachePath
   }
+  Assert-ManagedCacheCapacity `
+    -CacheRoot (Split-Path -Parent $CachePath) `
+    -AdditionalBytes 2MB
 
   $available = [math]::Max(1, $CanvasSize - ($Inset * 2))
   $scale = [math]::Min(
@@ -4765,6 +5341,25 @@ function Get-RemoteCustomIconAsset {
     $cacheKey = Get-Sha256Hex -Bytes $hashInput
     $extension = [string]$typeMap[$contentType]
     $sourcePath = Join-Path $cacheRoot ($cacheKey + $extension)
+    $expectedCacheGrowth = if (Test-Path -LiteralPath $sourcePath -PathType Leaf) {
+      [long]0
+    } else {
+      [long]$bytes.Length
+    }
+    if ($extension -eq '.svg') {
+      $expectedPreviewPath = Join-Path $cacheRoot ($cacheKey + '.html')
+      if (-not (Test-Path -LiteralPath $expectedPreviewPath -PathType Leaf)) {
+        $expectedCacheGrowth += ([long]$bytes.Length * 2) + 4096
+      }
+    } elseif (-not $SkipCardCopy) {
+      $expectedCardPath = Join-Path $cacheRoot ($cacheKey + '-card.png')
+      if (-not (Test-Path -LiteralPath $expectedCardPath -PathType Leaf)) {
+        $expectedCacheGrowth += 2MB
+      }
+    }
+    Assert-ManagedCacheCapacity `
+      -CacheRoot $cacheRoot `
+      -AdditionalBytes $expectedCacheGrowth
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
       [System.IO.File]::WriteAllBytes($sourcePath, $bytes)
     }
@@ -5078,6 +5673,9 @@ function New-MediaBitmap {
   )
 
   $resolvedSource = $Source
+  if ($Source -notmatch '^https://' -and $Kind -ne 'youtube') {
+    Get-ValidatedLocalMediaInfo -Path $Source -Kind 'image' | Out-Null
+  }
   if ($Kind -eq 'youtube') {
     $videoId = Get-YouTubeVideoId -Source $Source
     if ([string]::IsNullOrWhiteSpace($videoId)) {
@@ -5113,12 +5711,17 @@ function Get-GifFrames {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
     throw "GIF file not found: $Path"
   }
+  $validated = Get-ValidatedLocalMediaInfo -Path $Path -Kind 'gif'
   $decoder = [System.Windows.Media.Imaging.GifBitmapDecoder]::new(
     [uri][System.IO.Path]::GetFullPath($Path),
     [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat,
     [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
   )
-  return @($decoder.Frames)
+  $frames = @($decoder.Frames)
+  if ($frames.Count -ne [int]$validated.frameCount) {
+    throw 'GIF frame metadata changed while the file was being loaded.'
+  }
+  return $frames
 }
 
 function Get-ThemePalette {
@@ -5700,6 +6303,7 @@ function Ensure-HoverWebView {
     $script:hoverWebView.VerticalAlignment = [System.Windows.VerticalAlignment]::Stretch
     $creationProperties = New-Object Microsoft.Web.WebView2.Wpf.CoreWebView2CreationProperties
     $creationProperties.UserDataFolder = Join-Path $runtimeRoot 'WebView2'
+    $creationProperties.AdditionalBrowserArguments = '--disk-cache-size=33554432'
     $script:hoverWebView.CreationProperties = $creationProperties
     $script:hoverWebView.add_CoreWebView2InitializationCompleted({
         param($sender, $eventArgs)
@@ -6208,14 +6812,34 @@ function New-LauncherCard {
   </Border>
 </ControlTemplate>
 '@)
-  if (Test-HasNodeStartup -Item $Item) {
-    $startServer = New-ContextMenuItem -Header 'Start server and open'
-    $startServer.Tag = $Item
-    $startServer.Add_Click({
+  if ((Test-HasNodeStartup -Item $Item) -and (Test-HasHealthCheck -Item $Item)) {
+    $serverRecovery = New-ContextMenuItem -Header 'Check and restart server'
+    $serverRecovery.Tag = $Item
+    Update-ServerRecoveryMenuItem -MenuItem $serverRecovery
+    $serverRecovery.Add_Click({
         param($sender, $eventArgs)
-        Launch-Item -Item $sender.Tag
+        try {
+          Queue-NodeServerRecovery -Item $sender.Tag
+        } catch {
+          Show-Toast -Message "Could not restart $($sender.Tag.name)"
+          Write-RuntimeLog "Server recovery request failed for '$($sender.Tag.id)'. $($_.Exception.Message)"
+        }
       })
-    $context.Items.Add($startServer) | Out-Null
+    $context.Items.Add($serverRecovery) | Out-Null
+    $context.Tag = $serverRecovery
+    $context.Add_Opened({
+        param($sender, $eventArgs)
+        Update-ServerRecoveryMenuItem -MenuItem $sender.Tag
+      })
+  } elseif (Test-HasHealthCheck -Item $Item) {
+    $configureRecovery = New-ContextMenuItem -Header 'Configure server restart...'
+    $configureRecovery.ToolTip = 'Add a trusted Node start target before this shortcut can restart its server.'
+    $configureRecovery.Tag = $Item
+    $configureRecovery.Add_Click({
+        param($sender, $eventArgs)
+        Show-ItemDialog -ExistingItem $sender.Tag | Out-Null
+      })
+    $context.Items.Add($configureRecovery) | Out-Null
   }
 
   $edit = New-ContextMenuItem -Header 'Edit'
@@ -6337,7 +6961,7 @@ function Start-HealthCheck {
 
   $script:pendingHealth = [System.Collections.Generic.List[object]]::new()
   foreach ($item in @($script:state.items | Where-Object {
-        -not $_.hidden -and -not [string]::IsNullOrWhiteSpace([string]$_.health)
+        -not $_.hidden -and (Test-HasHealthCheck -Item $_)
       })) {
     $request = $null
     try {
@@ -6419,20 +7043,42 @@ function Complete-HealthCheck {
     if ($script:pendingOpen.ContainsKey($itemId)) {
       $pendingOpen = $script:pendingOpen[$itemId]
       if ($healthy) {
-        try {
-          Open-ItemTarget -Item $pendingOpen.item
-          Show-Toast -Message "$($pendingOpen.item.name) is ready"
-        } catch {
-          Show-Toast -Message "Could not open $($pendingOpen.item.name)"
-          Write-RuntimeLog "Ready target open failed for '$itemId'. $($_.Exception.Message)"
+        $openWhenHealthy = (
+          $pendingOpen.PSObject.Properties.Name -notcontains 'openWhenHealthy' -or
+          [bool]$pendingOpen.openWhenHealthy
+        )
+        if ($openWhenHealthy) {
+          try {
+            Open-ItemTarget -Item $pendingOpen.item
+            Show-Toast -Message "$($pendingOpen.item.name) is ready"
+          } catch {
+            Show-Toast -Message "Could not open $($pendingOpen.item.name)"
+            Write-RuntimeLog "Ready target open failed for '$itemId'. $($_.Exception.Message)"
+          }
+        } else {
+          Show-Toast -Message "$($pendingOpen.item.name) is online"
         }
         $script:pendingOpen.Remove($itemId)
       } elseif (-not [bool]$pendingOpen.startupRequested) {
         try {
+          if (
+            $pendingOpen.PSObject.Properties.Name -contains 'restartTrackedProcess' -and
+            [bool]$pendingOpen.restartTrackedProcess
+          ) {
+            if (-not (Stop-TrackedLocalServer -Item $pendingOpen.item -ConfirmForce)) {
+              $script:pendingOpen.Remove($itemId)
+              Show-Toast -Message "Restart canceled for $($pendingOpen.item.name)"
+              continue
+            }
+          }
           Start-LocalServer -Item $pendingOpen.item | Out-Null
           $pendingOpen.startupRequested = $true
           $pendingOpen.deadline = (Get-Date).AddSeconds(30)
-          Show-Toast -Message "Starting $($pendingOpen.item.name) with bundled Node"
+          $startVerb = if (
+            $pendingOpen.PSObject.Properties.Name -contains 'restartTrackedProcess' -and
+            [bool]$pendingOpen.restartTrackedProcess
+          ) { 'Restarting' } else { 'Starting' }
+          Show-Toast -Message "$startVerb $($pendingOpen.item.name) with bundled Node"
         } catch {
           $script:pendingOpen.Remove($itemId)
           Show-Toast -Message "Could not start $($pendingOpen.item.name)"
@@ -6494,6 +7140,30 @@ function Capture-Widget {
   }
 }
 
+if ($StartupTargetProbe) {
+  try {
+    if ([string]::IsNullOrWhiteSpace($StartupProbeTarget)) {
+      throw 'StartupProbeTarget is required for StartupTargetProbe.'
+    }
+    $configuration = Resolve-NodeStartupConfiguration `
+      -Target $StartupProbeTarget `
+      -Arguments $StartupProbeArgs
+    [pscustomobject]@{
+      success = $true
+      kind = $configuration.kind
+      target = $configuration.target
+      arguments = $configuration.arguments
+    } | ConvertTo-Json -Depth 4
+    exit 0
+  } catch {
+    [pscustomobject]@{
+      success = $false
+      error = $_.Exception.Message
+    } | ConvertTo-Json -Depth 4
+    exit 1
+  }
+}
+
 if ($StartupProbe) {
   if (
     [string]::IsNullOrWhiteSpace($StartupProbeTarget) -or
@@ -6514,6 +7184,7 @@ if ($StartupProbe) {
 
   $probeProcess = $null
   $healthy = $false
+  $tokenMatched = $false
   $statusCode = $null
   $startedAt = Get-Date
   try {
@@ -6525,7 +7196,14 @@ if ($StartupProbe) {
       try {
         $response = Invoke-WebRequest -Uri $StartupProbeHealth -UseBasicParsing -TimeoutSec 1
         $statusCode = [int]$response.StatusCode
-        $healthy = $statusCode -ge 200 -and $statusCode -lt 400
+        $tokenMatched = (
+          [string]::IsNullOrWhiteSpace($StartupProbeExpectedToken) -or
+          ([string]$response.Content).IndexOf(
+            $StartupProbeExpectedToken,
+            [System.StringComparison]::Ordinal
+          ) -ge 0
+        )
+        $healthy = $statusCode -ge 200 -and $statusCode -lt 400 -and $tokenMatched
       } catch {
         $healthy = $false
       }
@@ -6538,6 +7216,7 @@ if ($StartupProbe) {
       processId = if ($null -ne $probeProcess) { $probeProcess.Id } else { $null }
       health = $StartupProbeHealth
       statusCode = $statusCode
+      expectedTokenMatched = [bool]$tokenMatched
       readyMilliseconds = [math]::Round(((Get-Date) - $startedAt).TotalMilliseconds)
       windowStyle = 'Hidden'
     } | ConvertTo-Json -Depth 5
@@ -6546,7 +7225,7 @@ if ($StartupProbe) {
     if ($null -ne $probeProcess) {
       try {
         if (-not $probeProcess.HasExited) {
-          Stop-Process -Id $probeProcess.Id -Force
+          Stop-ProcessTree -Process $probeProcess | Out-Null
         }
       } catch {
         Write-RuntimeLog "Startup probe cleanup failed. $($_.Exception.Message)"
@@ -6559,7 +7238,36 @@ if ($StartupProbe) {
   exit 0
 }
 
-$script:state = Read-State
+try {
+  $script:state = Read-State
+} catch [System.NotSupportedException] {
+  if ($StateLifecycleProbe) {
+    [pscustomobject][ordered]@{
+      success = $false
+      exitCode = 3
+      statePath = $StatePath
+      error = $_.Exception.Message
+    } | ConvertTo-Json -Depth 4
+    exit 3
+  }
+  [System.Windows.MessageBox]::Show(
+    $_.Exception.Message,
+    'Workspace Widget update required',
+    [System.Windows.MessageBoxButton]::OK,
+    [System.Windows.MessageBoxImage]::Warning
+  ) | Out-Null
+  exit 3
+}
+if ($StateLifecycleProbe) {
+  [pscustomobject][ordered]@{
+    success = $true
+    exitCode = 0
+    statePath = $StatePath
+    schemaVersion = [int]$script:state.schemaVersion
+    itemCount = @($script:state.items).Count
+  } | ConvertTo-Json -Depth 4
+  exit 0
+}
 $script:minUiMode = [bool]$script:state.window.minUiMode
 $script:minUiWidth = 96.0
 $script:minUiOpacity = [math]::Max(

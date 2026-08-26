@@ -5,6 +5,10 @@ Store MSIX path. The existing Inno Setup installer and unpackaged scripts are
 retained only for local development and migration testing. They are not public
 release artifacts.
 
+For a Korean, click-by-click account, name reservation, identity, submission,
+certification, and rollout checklist, see
+[Partner Center submission guide](PARTNER-CENTER-SUBMISSION-KO.md).
+
 ## Why MSIX
 
 - Microsoft signs accepted Store MSIX packages at no certificate cost.
@@ -143,3 +147,15 @@ Before uploading:
 Docker is useful for isolated Node fixtures and static checks, but it cannot
 validate WindowsApps deployment, WPF/tray behavior, StartupTask, package update
 or uninstall, WACK, or Store certification.
+
+## Official references
+
+- [Open a free developer account](https://learn.microsoft.com/en-us/windows/apps/publish/faq/open-developer-account)
+- [Reserve an app name](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/reserve-your-apps-name)
+- [View exact app identity fields](https://learn.microsoft.com/en-us/windows/apps/publish/view-app-identity-details)
+- [Create an MSIX app submission](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission)
+- [MSIX package requirements](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements)
+- [Code-signing options](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)
+- [App capability declarations](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/app-capability-declarations)
+- [Windows App Certification Kit](https://learn.microsoft.com/en-us/windows/uwp/debug-test-perf/windows-app-certification-kit)
+- [Microsoft Store policies](https://learn.microsoft.com/en-us/windows/apps/publish/store-policies)

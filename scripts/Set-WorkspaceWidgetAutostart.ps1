@@ -426,7 +426,7 @@ function Get-AutostartStatus {
     arguments = [string]$actionObject.Arguments
     workingDirectory = [string]$actionObject.WorkingDirectory
     delay = if ($null -ne $triggerObject) { [string]$triggerObject.Delay } else { $null }
-    lastTaskResult = if ($null -ne $taskInfo) { [int]$taskInfo.LastTaskResult } else { $null }
+    lastTaskResult = if ($null -ne $taskInfo) { [uint32]$taskInfo.LastTaskResult } else { $null }
   }
 }
 

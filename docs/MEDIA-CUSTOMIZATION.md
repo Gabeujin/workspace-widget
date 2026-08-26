@@ -7,7 +7,8 @@ All media settings are stored in the current user's state file.
 Only configure content that you trust and have permission to display.
 Workspace Widget stores the original local path or URL. Public HTTPS raster
 images are additionally copied into a bounded per-user cache before decoding;
-local files and streaming video remain at their configured source.
+local files and local video remain at their configured source. Direct remote
+video is intentionally rejected.
 
 ## Open appearance settings
 
@@ -69,7 +70,10 @@ posters are downloaded with a 10-second timeout and a 10 MB response limit,
 checked across at most three public-HTTPS redirects, validated by content type
 and decoded dimensions, and then read from
 `%LOCALAPPDATA%\WorkspaceServiceWidget\MediaCache`. Raster input is limited to
-8192 pixels per side and 32 megapixels.
+8192 pixels per side and 32 megapixels. Local image and GIF containers are also
+limited to 64 MB; GIFs are limited to 240 frames and a bounded aggregate pixel
+budget. Each managed IconCache or MediaCache directory accepts at most 128 MB
+of content and fails closed instead of silently deleting older files.
 
 ### Background GIFs
 
@@ -185,8 +189,7 @@ If the WebView2 assemblies or control are unavailable when the preview is
 created, the hover preview falls back to the YouTube poster and labels the
 preview with an instruction to install WebView2. If control creation succeeds
 but WebView2 later fails during asynchronous Runtime initialization, the
-current build logs the error but does not guarantee a poster fallback; the
-preview can remain blank.
+current build logs the error and returns to the poster or themed fallback.
 
 The release package includes the WebView2 SDK assemblies and native loader. It
 does not download or install the Microsoft Edge WebView2 Evergreen Runtime.
@@ -198,6 +201,10 @@ WebView2 user data is stored under:
 ```text
 %LOCALAPPDATA%\WorkspaceServiceWidget\WebView2
 ```
+
+WebView2 is launched with a 32 MB disk-cache target. Its profile is separate
+from the app-managed IconCache and MediaCache budgets and remains subject to the
+Evergreen Runtime's own servicing and storage behavior.
 
 ## State fields
 
@@ -243,10 +250,10 @@ only trusted files and trusted HTTPS origins.
 
 Remote raster images must resolve to public addresses. Every handled redirect
 is checked again, downloads are bounded to 10 MB, response types are allowlisted,
-and decoded dimensions are capped before the local cache is rendered. Remote
-video uses Windows streaming after the configured URL passes the public-address
-check; it is not a general web page and still requires a trusted origin because
-codec support, redirects, and stream behavior are controlled by Windows and the
+and decoded dimensions are capped before the local cache is rendered. Direct
+remote video is rejected because Windows streaming would create a second
+network path outside that downloader. Local video still requires a trusted file
+because codec support and stream behavior are controlled by Windows and the
 server.
 
 Do not configure:
@@ -302,8 +309,7 @@ Remote GIF animation is not supported. Save an authorized copy as a local
 - Direct HTTPS video is intentionally unsupported. Download trusted video to a
   local file or use a supported YouTube URL.
 - Review `runtime.log` for `MediaFailed` details. An asynchronous media failure
-  is logged, but the current build can leave an empty media surface instead of
-  automatically restoring the themed fallback.
+  is logged and the current preview returns to its poster or themed fallback.
 
 ### YouTube shows a poster instead of video
 

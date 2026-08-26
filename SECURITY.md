@@ -23,7 +23,9 @@ Include:
 Workspace Widget is a local desktop launcher. It intentionally opens URLs,
 files, shortcuts, and folders selected by the current Windows user. It can also
 run a user-selected JavaScript entry file or package script when a configured
-health endpoint is offline.
+health endpoint is offline. Automatic Node startup requires that health endpoint
+to be loopback. Remote health monitoring remains available only without an
+automatic Node start target.
 
 Only add trusted local paths, shortcuts, endpoints, media, and Node projects.
 A launched program or package script has the same permissions as the current
@@ -76,20 +78,52 @@ resolves to that executable-owned root. The single-instance protocol requires
 UI-ready and window-presented events before a launcher reports success.
 
 The package includes a checksum-pinned official Node.js runtime and npm. The
-widget invokes them only for a user-configured Node start target.
+widget invokes them only for a user-configured Node start target. Installed and
+Store builds ignore runtime environment overrides and system `PATH`; those
+fallbacks exist only for unpackaged source development.
 It does not run `npm install`, resolve missing dependencies, or execute a
 package script merely because a project is discovered. Package scripts still
 run with the signed-in user's permissions and remain inside the user's trust
-boundary.
+boundary. An offline restart never kills a process merely because it owns the
+configured port. If the current widget instance still owns a live process tree,
+it requires explicit confirmation before force-stopping that tree.
 
-The build validates the pinned Node archive before extracting a fresh runtime;
-it never executes a previously extracted mutable cache to identify a version.
+The build validates the pinned Node archive before extraction. A previously
+extracted dependency cache is reused only after every cached path, size, and
+SHA-256 is compared directly with the entries in that already checksum-pinned
+official archive. The writable cache manifest is a receipt, never the trust
+anchor. An incomplete or mismatched cache fails closed, is not executed, and is
+never overwritten automatically.
 Release verification compares the complete stage and Node runtime with their
 hash manifests before running any media probe or bundled executable.
 
 Runtime state is saved atomically under
 `%LOCALAPPDATA%\WorkspaceServiceWidget`. The previous valid document is retained
 as `state.json.previous` and used for recovery when the current JSON is invalid.
+Unknown future schema versions stop startup without falling back or writing the
+state file, so installing an older widget cannot downgrade newer user data.
+Malformed current JSON may recover from `state.json.previous`. State over 4 MB
+and more than 250 shortcuts are rejected. Local images, GIF frames, managed
+media-cache writes, and runtime-log growth also have explicit resource limits.
+
+The repository records the dependency policy in
+`security/official-security-baseline.json` and a separate release-day review in
+`security/official-security-review.json`. As a conservative project-internal
+freshness policy, the release receipt expires after at most three days; this is
+not a Microsoft Store or WACK validity rule. CI checks the exact Node.js and WebView2 pins, archive-bound
+runtime cache, package capability allowlist, packaged runtime isolation, local
+path contamination, startup boundaries, and both expiries. This gate
+supplements rather than replaces Windows App Certification Kit, malware
+scanning, Partner Center certification, and Store-signed lifecycle testing.
+
+A Node.js security release rated HIGH or CRITICAL, a relevant WebView2 Runtime
+security update, or a Microsoft Store policy/restricted-capability change
+invalidates the waiting period. Re-review the official baseline, replace the
+affected runtime, rebuild, and rerun every release gate immediately.
+
+WebView2 runs with the signed-in standard user's privileges. Remote media and
+YouTube content must never be connected to privilege elevation or arbitrary
+native host-object access.
 
 The supported public binary is the Microsoft Store-signed, certified MSIX.
 Unsigned producer MSIX files and unpackaged local development artifacts must

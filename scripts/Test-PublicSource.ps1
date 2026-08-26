@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [string]$ProjectRoot,
-  [string]$LocalDenylistPath
+  [string]$LocalDenylistPath,
+  [switch]$WorkingTree
 )
 
 Set-StrictMode -Version Latest
@@ -58,6 +59,18 @@ function Get-TrackedFileText {
     [string]$RelativePath
   )
 
+  if ($WorkingTree) {
+    $workingPath = Join-Path $ProjectRoot $RelativePath
+    if (-not (Test-Path -LiteralPath $workingPath -PathType Leaf)) {
+      Add-PublicSourceFinding `
+        -Rule 'unreadable-working-tree-file' `
+        -Path $RelativePath `
+        -Detail 'The prospective working-tree file could not be read.'
+      return ''
+    }
+    return Get-Content -LiteralPath $workingPath -Raw
+  }
+
   $output = @(& git -C $ProjectRoot show ":$RelativePath" 2>&1)
   if ($LASTEXITCODE -ne 0) {
     Add-PublicSourceFinding `
@@ -72,8 +85,18 @@ function Get-TrackedFileText {
   )
 }
 
+$trackedFileArguments = @(
+  if ($WorkingTree) {
+    'ls-files'
+    '--cached'
+    '--others'
+    '--exclude-standard'
+  } else {
+    'ls-files'
+  }
+)
 $trackedFiles = @(
-  & git -C $ProjectRoot ls-files 2>&1 |
+  & git -C $ProjectRoot @trackedFileArguments 2>&1 |
     ForEach-Object { [string]$_ } |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 )
@@ -249,7 +272,7 @@ foreach ($trackedFile in $trackedFiles) {
   }
 
   if (
-    $relativeLower -like 'packaging/msix/store-identity*.json' -and
+    $relativeLower -like 'packaging/*store-identity*.json' -and
     $relativeLower -ne 'packaging/msix/store-identity.example.json'
   ) {
     Add-PublicSourceFinding `
@@ -334,16 +357,20 @@ if (
       -Path 'app/default-state.json' `
       -Detail 'Public source defaults must not contain registered items.'
   }
-  $defaultBlob = [string](
-    & git -C $ProjectRoot rev-parse ":$defaultStatePath" 2>$null
-  )
-  $publicBlob = [string](
-    & git -C $ProjectRoot rev-parse ":$publicDefaultStatePath" 2>$null
-  )
-  $defaultTemplatesMatch = (
-    -not [string]::IsNullOrWhiteSpace($defaultBlob) -and
-    $defaultBlob -eq $publicBlob
-  )
+  if ($WorkingTree) {
+    $defaultTemplatesMatch = $defaultStateText -ceq $publicDefaultStateText
+  } else {
+    $defaultBlob = [string](
+      & git -C $ProjectRoot rev-parse ":$defaultStatePath" 2>$null
+    )
+    $publicBlob = [string](
+      & git -C $ProjectRoot rev-parse ":$publicDefaultStatePath" 2>$null
+    )
+    $defaultTemplatesMatch = (
+      -not [string]::IsNullOrWhiteSpace($defaultBlob) -and
+      $defaultBlob -eq $publicBlob
+    )
+  }
   if (-not $defaultTemplatesMatch) {
     Add-PublicSourceFinding `
       -Rule 'default-template-drift' `
@@ -408,6 +435,7 @@ foreach ($commitEmail in $commitEmails) {
 
 $result = [pscustomobject][ordered]@{
   success = $findings.Count -eq 0
+  sourceMode = if ($WorkingTree) { 'working-tree-prospective' } else { 'git-index' }
   trackedFileCount = $trackedFiles.Count
   commitEmailCount = $commitEmails.Count
   localDenylistTermCount = $localPrivateTerms.Count

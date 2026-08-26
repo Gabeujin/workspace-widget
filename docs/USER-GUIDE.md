@@ -120,12 +120,31 @@ widget:
 3. waits up to 30 seconds for the health endpoint; and
 4. opens the target URL when it becomes healthy.
 
-Runtime discovery uses this order:
+For a health-checked shortcut, the card's right-click menu reflects its current
+state:
 
-1. `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`, or
-   `WORKSPACE_WIDGET_NPM`;
-2. `runtime\node\node.exe`, `runtime\node\npm.cmd`, or
-   `runtime\pnpm\pnpm.cmd` inside the application directory;
+- **Restart server** runs the configured Node start target while the health
+  endpoint is offline, waits for recovery, and does not open the target URL.
+- **Check and restart server** first resolves an as-yet-unknown health state and
+  starts only when the endpoint is unavailable.
+- **Server is online** is disabled so an ordinary right-click cannot interrupt a
+  healthy service.
+- **Configure server restart...** opens the shortcut editor when a Health URL is
+  present but no Node start target has been configured.
+
+When possible, recovery stops only a still-running process that this widget
+instance originally started for the same shortcut. It does not terminate an
+unrelated process merely because it happens to use the configured port. If that
+tracked process tree is still alive, the widget asks before force-stopping it
+and warns that unsaved server work can be lost.
+
+Installed and Store builds enforce their package-local runtime and ignore
+development overrides and system `PATH`. An unpackaged source checkout uses:
+
+1. `runtime\node\node.exe`, `runtime\node\npm.cmd`, or
+   `runtime\pnpm\pnpm.cmd` inside the project directory;
+2. `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`, or
+   `WORKSPACE_WIDGET_NPM` as development-only overrides;
 3. `node.exe`, `pnpm.cmd`, or `npm.cmd` on `PATH`.
 
 For a project directory, pnpm is preferred when present and the included npm is
@@ -138,6 +157,8 @@ available to the signed-in Windows user.
 
 Right-click a card to use the available management actions:
 
+- **Restart server** or **Configure server restart...** for health-checked local
+  services
 - **Edit**
 - **Move earlier**
 - **Move later**
@@ -274,7 +295,14 @@ The runtime also uses:
 
 State writes are performed through a temporary file and replace operation. If
 the primary JSON file cannot be read, the application tries
-`state.json.previous` before using packaged defaults.
+`state.json.previous` before using packaged defaults. Future unknown state
+schemas are rejected instead of silently rewritten. A state document is capped
+at 4 MB and 250 shortcuts; `runtime.log` stops growing at 4 MB.
+
+Managed `IconCache` and `MediaCache` directories each enforce a 128 MB write
+budget. Workspace Widget does not silently delete cached files. Close the app,
+back up the state directory, and review cache contents manually if the limit is
+reached.
 
 The Store release is designed to preserve package identity and keep this state
 directory outside immutable package files. Registered items and preferences are

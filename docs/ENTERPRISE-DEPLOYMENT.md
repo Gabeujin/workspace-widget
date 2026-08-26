@@ -16,6 +16,10 @@ channel and must not be published as an official download.
 - Interactive, non-elevated application process
 - Default install root:
   `%LOCALAPPDATA%\Programs\WorkspaceWidget`
+- The source-checkout migration helper stores immutable, content-addressed
+  release folders below `releases\<version>-<content-id>` and repoints the
+  shortcut and scheduled task only after exact file/hash validation. It never
+  removes older releases automatically.
 - Per-user state root:
   `%LOCALAPPDATA%\WorkspaceServiceWidget`
 
@@ -34,15 +38,15 @@ model.
 The build script produces:
 
 ```text
-artifacts\build\WorkspaceWidget.exe
-artifacts\staging\WorkspaceWidget\
-artifacts\WorkspaceWidget-<version>-manifest.json
-artifacts\WorkspaceWidget-Setup-<version>.exe
+%LOCALAPPDATA%\WorkspaceWidget\Builds\<version>\build\WorkspaceWidget.exe
+%LOCALAPPDATA%\WorkspaceWidget\Builds\<version>\staging\WorkspaceWidget\
+%LOCALAPPDATA%\WorkspaceWidget\Builds\<version>\WorkspaceWidget-<version>-manifest.json
+%LOCALAPPDATA%\WorkspaceWidget\Builds\<version>\WorkspaceWidget-Setup-<version>.exe
 ```
 
 The staged package contains the x64 native host, WPF application script, clean
 public default state, icons, autostart helper, legal notices, pinned WebView2
-SDK files, and the official Node.js 24.18.1 LTS Windows x64 distribution. The
+SDK files, and the official Node.js 24.19.0 LTS Windows x64 distribution. The
 dependency restore scripts accept only pinned sources and verify exact SHA-256
 values before extracting files.
 
@@ -107,6 +111,12 @@ native source.
 The installer has a stable application identifier and installs new versions
 over the existing per-user program directory. State is stored outside that
 directory and is preserved.
+
+The source-checkout migration helper uses side-by-side content-addressed
+release folders instead. It refuses to force-stop another running release, so
+the user must exit the widget from the tray before the helper changes the
+shortcut and scheduled task. Previous release folders remain available for
+manual rollback and are not deleted automatically.
 
 For a controlled upgrade:
 
@@ -224,7 +234,7 @@ YouTube playback requires the Microsoft Edge WebView2 Evergreen Runtime.
 Workspace Widget ships SDK assemblies and a native loader but does not install
 or silently download the runtime.
 
-Node.js 24.18.1 LTS and npm are included under `runtime\node`; pnpm is not.
+Node.js 24.19.0 LTS and npm are included under `runtime\node`; pnpm is not.
 The official Node.js archive is checksum-pinned and its full license material
 is retained. If local service startup is approved, restrict shortcut
 configuration to trusted projects. Workspace Widget does not install project
@@ -237,6 +247,13 @@ user's permissions.
   SYSTEM according to organizational policy.
 - Do not point autostart at a shared or broadly writable development checkout.
 - Restrict configuration to trusted local paths and network origins.
+- Installed packages use only their package-local checksum-pinned Node runtime;
+  environment and system `PATH` overrides are development-only.
+- Automatic Node startup accepts only local drive-rooted targets and loopback
+  health URLs. A force-stop of a widget-owned process tree requires confirmation.
+- Run `scripts\Test-OfficialSecurityBaseline.ps1`; a review older than 30 days
+  fails closed until official Node.js, WebView2, Windows, and Store sources are
+  reviewed again.
 - Review `.lnk` TargetPath, arguments, and working directory before
   registration.
 - Treat user-supplied media as active parsing input.
@@ -288,8 +305,9 @@ thumbprint is supplied.
 Verify the result independently:
 
 ```powershell
-$hostExe = 'artifacts\staging\WorkspaceWidget\WorkspaceWidget.exe'
-$setupExe = 'artifacts\WorkspaceWidget-Setup-0.1.0.exe'
+$buildRoot = Join-Path $env:LOCALAPPDATA 'WorkspaceWidget\Builds\0.1.0'
+$hostExe = Join-Path $buildRoot 'staging\WorkspaceWidget\WorkspaceWidget.exe'
+$setupExe = Join-Path $buildRoot 'WorkspaceWidget-Setup-0.1.0.exe'
 
 signtool.exe verify /pa /all /v $hostExe
 signtool.exe verify /pa /all /v $setupExe

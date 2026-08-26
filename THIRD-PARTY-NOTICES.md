@@ -20,10 +20,12 @@ supported Microsoft Store public distribution.
 Optional YouTube previews use Microsoft Edge WebView2 when the Evergreen
 WebView2 Runtime is installed. The release package may include the managed
 WebView2 SDK assemblies and native loader from the `Microsoft.Web.WebView2`
-NuGet package.
+NuGet package, pinned at 1.0.4129.50 for this release candidate.
 
 - Project: https://developer.microsoft.com/microsoft-edge/webview2/
 - Package: https://www.nuget.org/packages/Microsoft.Web.WebView2
+- Package SHA-256:
+  `D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2`
 - License: https://licenses.nuget.org/BSD-3-Clause
 
 The Evergreen WebView2 Runtime itself is supplied and serviced by Microsoft.
@@ -31,7 +33,7 @@ Workspace Widget does not download or silently install it.
 
 ## Node.js
 
-The application package includes the official Node.js 24.18.1 LTS Windows x64
+The application package includes the official Node.js 24.19.0 LTS Windows x64
 binary distribution so an explicitly configured local JavaScript service can
 start without a separate machine-wide Node.js installation. npm is included
 as part of that official distribution. Workspace Widget does not automatically
@@ -39,9 +41,9 @@ install project packages.
 
 - Project: https://nodejs.org/
 - Distribution:
-  https://nodejs.org/download/release/v24.18.1/node-v24.18.1-win-x64.zip
+  https://nodejs.org/download/release/v24.19.0/node-v24.19.0-win-x64.zip
 - SHA-256:
-  `EC56B84A7551893AB2324EBDFDC4AB974A63B4781162600B68A1293CC3E53765`
+  `57F71AB3652E797D84ACDDC79C81CC9FF1C6DDB2A1974CDB83F00FEE9BFF4C73`
 - License: `runtime\node\LICENSE` in the installed package
 
 Node.js includes software under additional compatible licenses. The complete

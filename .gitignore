@@ -56,6 +56,7 @@ packaging/msix/store-identity.json
 packaging/msix/store-identity.local.json
 packaging/msix/store-identity.*.local.json
 !packaging/msix/store-identity.example.json
+packaging/partnerCT data injection/
 
 # Backups, database exports, and archives
 *.7z

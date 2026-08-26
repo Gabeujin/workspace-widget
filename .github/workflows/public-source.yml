@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -22,7 +22,7 @@ jobs:
       - name: Verify tracked public source
         shell: powershell
         run: |
-          .\scripts\Test-PublicSource.ps1
+          .\scripts\Test-PublicSource.ps1 -WorkingTree
 
       - name: Test public-source fail-closed controls
         shell: powershell
@@ -60,6 +60,11 @@ jobs:
         run: |
           .\scripts\Test-WorkspaceWidgetNetworkBoundary.ps1
 
+      - name: Verify official security baseline
+        shell: powershell
+        run: |
+          .\scripts\Test-OfficialSecurityBaseline.ps1
+
       - name: Build allowlisted development stage
         shell: powershell
         run: |
@@ -86,6 +91,45 @@ jobs:
           if (-not [bool]$verificationResult.success) {
             $verificationResult | ConvertTo-Json -Depth 8
             throw 'The development stage verification failed.'
+          }
+          $listener = [System.Net.Sockets.TcpListener]::new(
+            [System.Net.IPAddress]::Loopback,
+            0
+          )
+          $listener.Start()
+          $probePort = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+          $listener.Stop()
+          $probeNonce = [guid]::NewGuid().ToString('N')
+          $probeOutput = @(
+            & powershell.exe `
+              -NoLogo `
+              -NoProfile `
+              -NonInteractive `
+              -ExecutionPolicy Bypass `
+              -File (Join-Path $buildResult.stageRoot 'app\WorkspaceWidget.ps1') `
+              -ProjectRoot $buildResult.stageRoot `
+              -StartupProbe `
+              -StartupProbeTarget (Resolve-Path '.\tests\fixtures\node-health-app\server.js') `
+              -StartupProbeHealth "http://127.0.0.1:$probePort/health" `
+              -StartupProbeArgs "$probePort $probeNonce" `
+              -StartupProbeExpectedToken $probeNonce
+          )
+          $probeExit = $LASTEXITCODE
+          $startupProbe = ($probeOutput -join [Environment]::NewLine) |
+            ConvertFrom-Json
+          Start-Sleep -Milliseconds 300
+          $probeProcessLeft = Get-Process `
+            -Id ([int]$startupProbe.processId) `
+            -ErrorAction SilentlyContinue
+          if (
+            $probeExit -ne 0 -or
+            -not [bool]$startupProbe.success -or
+            -not [bool]$startupProbe.expectedTokenMatched -or
+            [string]$startupProbe.bundledNodeVersion -ne 'v24.19.0' -or
+            $null -ne $probeProcessLeft
+          ) {
+            $startupProbe | ConvertTo-Json -Depth 8
+            throw 'The package-local Node startup/health/cleanup probe failed.'
           }
           $verificationResult | ConvertTo-Json -Depth 8
           $global:LASTEXITCODE = 0

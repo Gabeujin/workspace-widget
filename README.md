@@ -64,10 +64,16 @@ on **Start with Windows**.
 
 The existing Inno Setup and unpackaged install scripts are retained only for
 local development and migration testing; they are not supported public release
-artifacts.
+artifacts. The unpackaged helper installs an integrity-verified,
+content-addressed release below
+`%LOCALAPPDATA%\Programs\WorkspaceWidget\releases` and refuses to force-stop a
+different running release; exit the current widget from its tray before a
+local upgrade.
 
 See [Installation](docs/INSTALLATION.md) and
-[Microsoft Store release](docs/MICROSOFT-STORE-RELEASE.md).
+[Microsoft Store release](docs/MICROSOFT-STORE-RELEASE.md). Korean Partner
+Center account, registration, and submission steps are in
+[Partner Center submission guide](docs/PARTNER-CENTER-SUBMISSION-KO.md).
 
 ## Add a local web app
 
@@ -84,12 +90,22 @@ to 30 seconds, and opens the URL after health succeeds. Only configure code and
 endpoints you trust; they run or receive requests with the current user's
 permissions.
 
-Node discovery order is:
+Right-click a health-checked card to use **Restart server** while it is offline.
+The action runs only the explicitly configured Node start target, waits for the
+health endpoint, and leaves the target URL closed. If no start target is saved,
+the menu shows **Configure server restart...** and opens the shortcut editor.
+If the widget still owns a live process tree, restart requires confirmation
+before force-stopping it and warns that unsaved server work can be lost.
 
-1. `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`, and
+Store and installed builds use only their checksum-pinned package-local Node.js
+and npm. They ignore `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`,
+`WORKSPACE_WIDGET_NPM`, and system `PATH` runtimes. An unpackaged source checkout
+uses this development-only order:
+
+1. project-local `runtime\node\node.exe`, `runtime\node\npm.cmd`, or
+   `runtime\pnpm\pnpm.cmd`;
+2. `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`, and
    `WORKSPACE_WIDGET_NPM`;
-2. package-local `runtime\node\node.exe` and `runtime\node\npm.cmd`, or
-   package-local `runtime\pnpm\pnpm.cmd`;
 3. `node.exe`, `pnpm.cmd`, or `npm.cmd` on `PATH`.
 
 For a package directory, pnpm is preferred when available and npm is the
@@ -104,7 +120,9 @@ custom icon and hover media.
 
 Remote media must resolve to a public HTTPS address. Remote raster images are
 downloaded through a bounded, redirect-checked 10 MB cache before Windows
-decodes them. Animated GIF backgrounds are local-only. YouTube links display a
+decodes them. Local images are limited to 64 MB, animated GIFs are limited to
+240 frames, and managed IconCache/MediaCache growth is capped at 128 MB per
+cache directory. Animated GIF backgrounds are local-only. YouTube links display a
 validated poster as the widget background and play inside the shortcut hover
 preview when WebView2 is available. Use only media you trust and have permission
 to display. See [Media customization](docs/MEDIA-CUSTOMIZATION.md).
@@ -118,7 +136,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Workspac
 ```
 
 The base build compiles the x64 native host, restores checksum-pinned
-dependencies, and stages an allowlisted package. Store packaging is a separate
+dependencies, and stages an allowlisted package under
+`%LOCALAPPDATA%\WorkspaceWidget\Builds\<version>` by default, outside the source
+checkout. Development MSIX packages likewise default to
+`%LOCALAPPDATA%\WorkspaceWidget\MsixBuilds`. Store packaging is a separate
 step that requires the exact Partner Center Product identity:
 
 ```powershell
@@ -144,6 +165,11 @@ Do not sideload or distribute the unsigned producer file.
 test. Store release validation additionally covers package identity,
 `windows.startupTask`, install/update/uninstall, and Windows App Certification
 Kit behavior against the exact MSIX candidate.
+
+`scripts\Test-OfficialSecurityBaseline.ps1` binds release inputs to the latest
+reviewed official Node.js, WebView2, Windows capability, WACK, and Store policy
+sources. The CI gate expires after 30 days so dependency and policy freshness
+must be reviewed again rather than assumed.
 
 Release artifacts must pass the clean package, security, Store identity,
 Windows App Certification Kit, and Partner Center certification gates in

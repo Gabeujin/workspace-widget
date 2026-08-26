@@ -21,7 +21,12 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-  $OutputRoot = Join-Path $ProjectRoot 'artifacts'
+  $buildBase = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    [System.IO.Path]::GetTempPath()
+  } else {
+    $env:LOCALAPPDATA
+  }
+  $OutputRoot = Join-Path $buildBase "WorkspaceWidget\Builds\$Version"
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 
@@ -302,6 +307,7 @@ $stageFiles = @(
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\MEDIA-CUSTOMIZATION.md'); Destination = (Join-Path $stageRoot 'docs\MEDIA-CUSTOMIZATION.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\ENTERPRISE-DEPLOYMENT.md'); Destination = (Join-Path $stageRoot 'docs\ENTERPRISE-DEPLOYMENT.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\MICROSOFT-STORE-RELEASE.md'); Destination = (Join-Path $stageRoot 'docs\MICROSOFT-STORE-RELEASE.md') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\PARTNER-CENTER-SUBMISSION-KO.md'); Destination = (Join-Path $stageRoot 'docs\PARTNER-CENTER-SUBMISSION-KO.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\AI-ASSISTED-DEVELOPMENT.md'); Destination = (Join-Path $stageRoot 'docs\AI-ASSISTED-DEVELOPMENT.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'README.md'); Destination = (Join-Path $stageRoot 'README.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'PUBLIC-RELEASE-REVIEW.md'); Destination = (Join-Path $stageRoot 'PUBLIC-RELEASE-REVIEW.md') },

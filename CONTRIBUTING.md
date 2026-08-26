@@ -26,7 +26,7 @@ portable across clean Windows 11 profiles.
 - Windows 11 SDK with `makeappx.exe` for MSIX builds
 - Inno Setup 6 only for legacy development/migration installer builds
 - Network access to the pinned Microsoft WebView2 NuGet package when it is not
-  already present under `artifacts\dependencies`
+  already present under `%LOCALAPPDATA%\WorkspaceWidget\DependencyCache`
 - Microsoft Edge WebView2 Evergreen Runtime for YouTube playback testing
 - Node.js or pnpm for local-service startup testing
 
@@ -46,9 +46,11 @@ tests\fixtures\      Test-only fixtures
 scripts\              Build, dependency, install, startup, autostart, and test scripts
 ```
 
-Generated output is written below `artifacts\`. Runtime state belongs under
-`%LOCALAPPDATA%\WorkspaceServiceWidget` and must never be added to source
-control.
+Generated staging output defaults to `%LOCALAPPDATA%\WorkspaceWidget\Builds\<version>`,
+development MSIX output to `%LOCALAPPDATA%\WorkspaceWidget\MsixBuilds`, and
+dependency caches to `%LOCALAPPDATA%\WorkspaceWidget\DependencyCache`, all
+outside the checkout. Runtime state belongs under
+`%LOCALAPPDATA%\WorkspaceServiceWidget` and must never be added to source control.
 
 ## Build
 
@@ -87,8 +89,8 @@ verifies the NuGet package SHA-256. Do not change the version or checksum
 without reviewing the upstream package, license, notice, and extracted file
 layout.
 
-The build script's `-Version` parameter rewrites assembly attributes in
-`artifacts\build\WorkspaceWidgetHost.generated.cs` and applies the same version
+The build script's `-Version` parameter rewrites assembly attributes in the
+selected output root under `build\WorkspaceWidgetHost.generated.cs` and applies the same version
 to installer and manifest metadata. It does not modify
 `native\WorkspaceWidgetHost.cs`. Do not edit the generated source directly.
 
@@ -121,6 +123,14 @@ Run the repository verification:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Test-WorkspaceWidget.ps1
+```
+
+Run the official-source security baseline independently. Its review date
+expires after 30 days by design:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\Test-OfficialSecurityBaseline.ps1
 ```
 
 The integration test expects an installed or prepared per-user state file,

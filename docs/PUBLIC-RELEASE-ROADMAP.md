@@ -1,16 +1,15 @@
 # Workspace Widget public release roadmap
 
-- Last updated: 2026-07-30
+- Last updated: 2026-08-26
 - Release target: 0.1.0
 - Public repository: <https://github.com/Gabeujin/workspace-widget>
 - Product site target: <https://gabeujin.github.io/workspace-widget/>
 
 ## Purpose
 
-This document is the local source of truth for work that can be completed
-before Microsoft Partner Center approves the developer account. A phase is
-complete only when its implementation, verification result, and evidence path
-are recorded here.
+This document is the local source of truth for public-release work before and
+after Microsoft Partner Center onboarding. A phase is complete only when its
+implementation, verification result, and evidence path are recorded here.
 
 The supported public binary channel remains Microsoft Store MSIX. Source code,
 the source-only release candidate, and product documentation may be published
@@ -24,9 +23,9 @@ not be offered as public downloads.
 | Public source | Complete | Public `main` branch and source-only `v0.1.0-rc.1` |
 | Source CI | Complete | `Public source gate` workflow is green |
 | Source-only RC | Complete | `v0.1.0-rc.1` release exists |
-| Security boundary | Complete | Integration 48/48, network 11/11, release 17/17; see `PHASE7-VERIFICATION-RECEIPT.md` |
-| Malware scan | Complete for development validation artifacts | ESET reported zero detections across 4,028 files and 8,061 objects; see the Phase 7 receipt |
-| Current PC install | Complete | Bundled Node.js 24.18.1; user-state hash preserved |
+| Security boundary | Complete for current local engineering candidate | Integration 55/55, official security 27/27, network 11/11, release 18/18, MSIX 14/14; see `../PUBLIC-RELEASE-REVIEW.md` |
+| Malware scan | HOLD for current candidate | The July ESET result is historical; Microsoft Defender is disabled by current policy and did not scan this candidate |
+| Current PC install | Complete | Content-addressed side-by-side release with bundled Node.js 24.19.0; user-state hash preserved |
 | Public screenshots | Complete | Five neutral native-app captures plus four 1366 × 768 Store exports |
 | Store and web icons | Complete | Canonical PNG/ICO and documented web/Store derivatives |
 | Product/privacy/support site | Complete | All three Pages URLs return HTTPS 200; lifecycle-qualified privacy copy deployed in workflow run `30536510159` |
@@ -78,7 +77,7 @@ Status: **Complete**
 - [x] Update the installed files without deleting user data.
 - [x] Preserve `state.json` byte-for-byte unless a tested migration is required.
 - [x] Restart the native host and confirm one responsive process.
-- [x] Verify bundled Node.js 24.18.1 and rerun the current-device integration
+- [x] Verify bundled Node.js 24.19.0 and rerun the current-device integration
       suite.
 
 ### Completion gate
@@ -198,10 +197,11 @@ Status: **Complete before Partner Center**
 
 ### Completion gate
 
-The submission kit is copy-ready. Phase 7 is the remaining active local gate;
-after it passes, the actual Partner Center identity, independent-device
+The submission kit and local product gates are complete. Partner Center account
+verification, product-name reservation, and exact identity acquisition were
+completed on 2026-08-26. The clean-commit Store candidate, independent-device
 results, final listing properties, IARC receipt, target markets,
-`runFullTrust` submission, upload, and certification remain blank.
+`runFullTrust` submission, upload, and certification remain open.
 
 ## Phase 7 - Final negative review
 
@@ -219,27 +219,33 @@ Status: **Complete**
 - [x] Engineering quality score: 9.9/10.
 
 This completion applies to the local and public-source preparation scope.
-Partner Center identity, the exact Store candidate, independent-device
-lifecycle evidence, listing submission, certification, and Store-signed
-installation remain in the waiting lane below.
+Partner Center onboarding and identity acquisition are now complete. The exact
+Store candidate, independent-device lifecycle evidence, listing submission,
+certification, and Store-signed installation remain in the waiting lane below.
 
 ## Partner Center waiting lane
 
-The following items are intentionally excluded from active work until approval:
+Completed on 2026-08-26:
 
-1. Reserve the final product name.
-2. Copy the exact Package Identity Name, Publisher, and PublisherDisplayName.
-3. Build the clean `-StoreSubmission` MSIX with that identity.
-4. Upload listing assets and the unsigned Store-targeted MSIX.
-5. Enter and verify listing properties, target markets, the final IARC
+1. Register and verify the Store developer account.
+2. Reserve the final product name.
+3. Acquire the exact Package Identity Name, Publisher, and PublisherDisplayName
+   in a local Git-ignored identity file.
+
+Remaining:
+
+1. Build the clean `-StoreSubmission` MSIX with that identity.
+2. Upload listing assets and the unsigned Store-targeted MSIX.
+3. Enter and verify listing properties, target markets, the final IARC
    questionnaire, and the `runFullTrust` justification.
-6. Complete certification and verify the Microsoft-signed installation.
+4. Complete certification and verify the Microsoft-signed installation.
 
 ## Evidence ledger
 
 | Date | Phase | Result | Evidence path or URL |
 | --- | --- | --- | --- |
 | 2026-07-30 | Baseline | Public source and source-only RC confirmed | <https://github.com/Gabeujin/workspace-widget/releases/tag/v0.1.0-rc.1> |
+| 2026-08-26 | Partner Center onboarding | Account verified, product name reserved, identity schema and Git-ignore boundary verified without recording identity values | `../PUBLIC-RELEASE-REVIEW.md` |
 | 2026-07-30 | Installed RC update | Installed runtime updated to Node.js 24.18.1; state hash unchanged | `../PUBLIC-RELEASE-REVIEW.md#completed-controls` |
 | 2026-07-30 | Current-device integration | 48/48 checks passed; one responsive process | `../scripts/Test-WorkspaceWidget.ps1` |
 | 2026-07-30 | Screenshots | Neutral native captures and Store exports documented with hashes | `media/screenshots/README.md`, `media/store/README.md` |
@@ -251,3 +257,5 @@ The following items are intentionally excluded from active work until approval:
 | 2026-07-30 | Independent negative review | P0 0, P1 0, P2 0; engineering quality 9.9/10 | `PHASE7-VERIFICATION-RECEIPT.md` |
 | 2026-07-30 | Pushed public-source gate | Push and pull-request clean-checkout workflows passed on Phase 7 closeout commit `446d344` | <https://github.com/Gabeujin/workspace-widget/actions/runs/30537886939>, <https://github.com/Gabeujin/workspace-widget/actions/runs/30537891453> |
 | 2026-07-30 | Final development artifacts | Evidence set `WW-PHASE7-20260730-201713` passed 17/17 release, 14/14 MSIX, and ESET 0-detection checks from source revision `446d344` | `PHASE7-VERIFICATION-RECEIPT.md` |
+| 2026-08-25 | Runtime and state hardening | Package runtime fails closed when missing, Node cache is verified against the pinned official ZIP, future state schema remains byte-preserved, and relative Node targets are rejected | `../SECURITY.md`, `../security/official-security-review.json` |
+| 2026-08-25 | Current local product gate | 55/55 integration, 27/27 official security, 11/11 network, 18/18 release, 14/14 development MSIX, and 72-file prospective source scan pass; Store/WACK/malware gates remain HOLD | `../PUBLIC-RELEASE-REVIEW.md` |
