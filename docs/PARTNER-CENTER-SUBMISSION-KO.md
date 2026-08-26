@@ -111,26 +111,30 @@ Microsoft Store가 인증 후 다시 서명한 최종 패키지만 공개 배포
 
 ## 5. Windows App Certification Kit와 실기기 검증
 
-1. 정확한 후보 MSIX를 개발용 인증서로 서명한 별도 검증 복사본을 만듭니다.
-2. 지원되는 Windows 11 x64 표준 사용자 환경에 설치합니다.
-3. WebView2 Evergreen Runtime이 설치되어 있고 현재 지원되는 안정 채널인지
+1. 정확한 unsigned Store 후보 MSIX에 WACK 패키지 검사를 실행합니다.
+2. 설치·업데이트·제거 검증이 필요하면 payload가 같은 개발 서명 복사본을
+   만들거나 Store 인증 후 Microsoft가 서명한 패키지를 사용합니다.
+3. 지원되는 Windows 11 x64 표준 사용자 환경에 설치합니다.
+4. WebView2 Evergreen Runtime이 설치되어 있고 현재 지원되는 안정 채널인지
    확인합니다. SDK `1.0.4129.50`에서 앱이 사용하는 API와 호환되는 Runtime으로
    실행하고, 런타임이 없거나 업데이트에 실패했을 때 안내 UX도 확인합니다.
-4. 첫 실행, 바로가기, 트레이, Always on top, MIN UI, WebView2 미디어, Node 시작,
+5. 첫 실행, 바로가기, 트레이, Always on top, MIN UI, WebView2 미디어, Node 시작,
    시작 앱 설정, 업데이트, 제거, 재설치를 검증합니다.
-5. 같은 후보에
+6. 같은 후보에
    [Windows App Certification Kit](https://learn.microsoft.com/en-us/windows/uwp/debug-test-perf/windows-app-certification-kit)를
    실행하고 적용 가능한 실패를 모두 해결합니다.
 
 WACK 명령행 검사는 활성 대화형 사용자 세션의 관리자 PowerShell에서 다음처럼
-실행하고 XML 결과를 release receipt와 함께 보존합니다. `<signed-test-copy.msix>`는
-Store 업로드 후보와 payload/hash가 같은 개발 서명 검증 복사본이어야 합니다.
+실행하고 XML 결과를 release receipt와 함께 보존합니다. Microsoft의 WACK
+명령행 절차는 설치되지 않은 패키지를 `-appxpackagepath`로 직접 열어 검사할 수
+있으므로 Store에 올릴 정확한 unsigned 후보를 이 단계에 사용합니다. 로컬 설치
+수명주기 검증에만 별도의 개발 서명 복사본이 필요할 수 있습니다.
 
 ```powershell
 $appcert = "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\appcert.exe"
 & $appcert reset
 & $appcert test `
-  -appxpackagepath C:\release\signed-test-copy.msix `
+  -appxpackagepath C:\release\store-candidate.msix `
   -reportoutputpath C:\release\WACK-0.1.0.xml
 ```
 

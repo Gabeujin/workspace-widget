@@ -24,15 +24,15 @@ not be offered as public downloads.
 | Source CI | Complete | `Public source gate` workflow is green |
 | Source-only RC | Complete | `v0.1.0-rc.1` release exists |
 | Security boundary | Complete for current local engineering candidate | Integration 55/55, official security 27/27, network 11/11, release 18/18, MSIX 14/14; see `../PUBLIC-RELEASE-REVIEW.md` |
-| Malware scan | HOLD for current candidate | The July ESET result is historical; Microsoft Defender is disabled by current policy and did not scan this candidate |
+| Malware scan | Complete with one current engine | ESET scanned the exact Store candidate in no-clean/no-quarantine mode and reported zero detections; Microsoft Defender remains disabled by policy |
 | Current PC install | Complete | Content-addressed side-by-side release with bundled Node.js 24.19.0; user-state hash preserved |
 | Public screenshots | Complete | Five neutral native-app captures plus four 1366 × 768 Store exports |
 | Store and web icons | Complete | Canonical PNG/ICO and documented web/Store derivatives |
 | Product/privacy/support site | Complete | All three Pages URLs return HTTPS 200; lifecycle-qualified privacy copy deployed in workflow run `30536510159` |
 | Store listing handoff | Complete before Partner Center | Bilingual listing kit and independent Windows 11 checklist prepared |
 | GitHub public controls | Complete, maintainer-verified 2026-07-30 | Authenticated API checks confirmed homepage, alerts, security updates, secret scanning, push protection, and private reporting; see the Phase 7 receipt |
-| Partner Center identity | Waiting | Exact Name, Publisher, and PublisherDisplayName are unavailable |
-| Store MSIX | Waiting on identity | `-StoreSubmission` intentionally rejects placeholder identity |
+| Partner Center identity | Complete | Exact values are supplied only through a local Git-ignored JSON file and are rejected by the public-source gate if tracked |
+| Store MSIX | Complete for local submission candidate | Clean-source `-StoreSubmission` build, independent 14/14 verification, WACK overall PASS, and exact-candidate ESET zero-detection evidence completed |
 | Independent Windows 11 lifecycle test | Waiting on device | Docker cannot validate WPF, tray, StartupTask, MSIX update, or uninstall |
 
 ## Operating rules
@@ -199,9 +199,10 @@ Status: **Complete before Partner Center**
 
 The submission kit and local product gates are complete. Partner Center account
 verification, product-name reservation, and exact identity acquisition were
-completed on 2026-08-26. The clean-commit Store candidate, independent-device
-results, final listing properties, IARC receipt, target markets,
-`runFullTrust` submission, upload, and certification remain open.
+completed on 2026-08-26. The clean-commit Store candidate, independent 14/14
+package verification, WACK overall PASS, and exact-candidate ESET scan are also
+complete. Independent-device results, final listing properties, IARC receipt,
+target markets, `runFullTrust` submission, upload, and certification remain open.
 
 ## Phase 7 - Final negative review
 
@@ -219,8 +220,8 @@ Status: **Complete**
 - [x] Engineering quality score: 9.9/10.
 
 This completion applies to the local and public-source preparation scope.
-Partner Center onboarding and identity acquisition are now complete. The exact
-Store candidate, independent-device lifecycle evidence, listing submission,
+Partner Center onboarding, identity acquisition, and the exact Store candidate
+are now complete. Independent-device lifecycle evidence, listing submission,
 certification, and Store-signed installation remain in the waiting lane below.
 
 ## Partner Center waiting lane
@@ -231,13 +232,19 @@ Completed on 2026-08-26:
 2. Reserve the final product name.
 3. Acquire the exact Package Identity Name, Publisher, and PublisherDisplayName
    in a local Git-ignored identity file.
+4. Build the exact Store MSIX from a clean commit and pass the independent
+   14/14 Store-candidate verification.
+5. Run WACK against the exact unsigned MSIX and retain its overall PASS report.
+6. Scan the exact MSIX with ESET in no-clean/no-quarantine mode and retain the
+   zero-detection report.
 
 Remaining:
 
-1. Build the clean `-StoreSubmission` MSIX with that identity.
-2. Upload listing assets and the unsigned Store-targeted MSIX.
-3. Enter and verify listing properties, target markets, the final IARC
+1. Upload listing assets and the unsigned Store-targeted MSIX.
+2. Enter and verify listing properties, target markets, the final IARC
    questionnaire, and the `runFullTrust` justification.
+3. Complete the independent Windows 11 lifecycle checklist when a suitable
+   standard-user environment is available.
 4. Complete certification and verify the Microsoft-signed installation.
 
 ## Evidence ledger
@@ -246,6 +253,7 @@ Remaining:
 | --- | --- | --- | --- |
 | 2026-07-30 | Baseline | Public source and source-only RC confirmed | <https://github.com/Gabeujin/workspace-widget/releases/tag/v0.1.0-rc.1> |
 | 2026-08-26 | Partner Center onboarding | Account verified, product name reserved, identity schema and Git-ignore boundary verified without recording identity values | `../PUBLIC-RELEASE-REVIEW.md` |
+| 2026-08-26 | Exact Store candidate | Clean-source Store build, independent 14/14 package verification, WACK overall PASS, and ESET zero detections; exact commit and file hashes remain in the external receipt set | `../PUBLIC-RELEASE-REVIEW.md` |
 | 2026-07-30 | Installed RC update | Installed runtime updated to Node.js 24.18.1; state hash unchanged | `../PUBLIC-RELEASE-REVIEW.md#completed-controls` |
 | 2026-07-30 | Current-device integration | 48/48 checks passed; one responsive process | `../scripts/Test-WorkspaceWidget.ps1` |
 | 2026-07-30 | Screenshots | Neutral native captures and Store exports documented with hashes | `media/screenshots/README.md`, `media/store/README.md` |
@@ -258,4 +266,4 @@ Remaining:
 | 2026-07-30 | Pushed public-source gate | Push and pull-request clean-checkout workflows passed on Phase 7 closeout commit `446d344` | <https://github.com/Gabeujin/workspace-widget/actions/runs/30537886939>, <https://github.com/Gabeujin/workspace-widget/actions/runs/30537891453> |
 | 2026-07-30 | Final development artifacts | Evidence set `WW-PHASE7-20260730-201713` passed 17/17 release, 14/14 MSIX, and ESET 0-detection checks from source revision `446d344` | `PHASE7-VERIFICATION-RECEIPT.md` |
 | 2026-08-25 | Runtime and state hardening | Package runtime fails closed when missing, Node cache is verified against the pinned official ZIP, future state schema remains byte-preserved, and relative Node targets are rejected | `../SECURITY.md`, `../security/official-security-review.json` |
-| 2026-08-25 | Current local product gate | 55/55 integration, 27/27 official security, 11/11 network, 18/18 release, 14/14 development MSIX, and 72-file prospective source scan pass; Store/WACK/malware gates remain HOLD | `../PUBLIC-RELEASE-REVIEW.md` |
+| 2026-08-26 | Current local product gate | 55/55 integration, 27/27 official security, 11/11 network, 18/18 release, 14/14 Store candidate, WACK overall PASS, ESET zero detections, and prospective public-source scan pass; Partner Center and independent-device gates remain open | `../PUBLIC-RELEASE-REVIEW.md` |

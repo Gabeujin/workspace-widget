@@ -1,13 +1,13 @@
 # Public Release Review
 
-Review date: 2026-08-25
+Review date: 2026-08-26
 Candidate: 0.1.0, Windows 11 x64
 
 ## Decision
 
-**The current local product-engineering candidate passes its implemented
-quality and security gates; official Microsoft Store submission remains on
-hold.**
+**The exact clean-commit Store candidate passes the implemented local quality,
+security, package, malware, and WACK gates; Partner Center submission and
+independent-device lifecycle evidence remain open.**
 
 The x64 full-trust WPF host, allowlisted runtime stage, Store manifest
 template, package receipt, package-aware startup task, clean public default,
@@ -26,11 +26,11 @@ contracts. A deliberately corrupted Node runtime cache was refused before
 execution, and the public-source scan found zero findings across 72 prospective
 tracked files.
 
-The earlier ESET result in
-[the Phase 7 verification receipt](docs/PHASE7-VERIFICATION-RECEIPT.md) remains
-historical evidence for the July candidate only. Microsoft Defender is disabled
-by policy on the current PC, so its exact-candidate scan failed before scanning
-with `0x80004005`; no malware-clean claim is made for the current candidate.
+The exact clean-commit Store candidate was scanned with the installed ESET
+Security command-line scanner in no-clean/no-quarantine mode. It inspected the
+MSIX archive and reported zero detections. Microsoft Defender remains disabled
+by policy on the current PC, so this is one current reputable-engine result, not
+a dual-engine claim.
 
 The public product, privacy, and support pages are deployed under
 <https://gabeujin.github.io/workspace-widget/>. Four neutral Store screenshots,
@@ -42,27 +42,31 @@ On 2026-08-26, the Microsoft Store developer account was verified, the product
 name was reserved, and the exact Partner Center identity was supplied through a
 local Git-ignored JSON file. The required field schema and ignore boundary were
 verified without copying the identity values into public source or this report.
+The clean source was then rebuilt into an external Store output directory. Its
+receipt binds the MSIX to the exact source revision, and the independent package
+verifier confirmed every Store-candidate contract without packaging the private
+identity JSON.
+
+Windows App Certification Kit 10.0.26100.7705 completed a non-partial command-
+line run against that exact unsigned MSIX with overall result `PASS`. One
+optional blocked-executable subtest reported expected process-launch and shell
+name references from the full-trust host, bundled Node.js runtime, npm material,
+and user documentation; the other 23 test results passed. This result must be
+retained with the package receipt and does not replace Store certification.
 
 ## Remaining publication blockers
 
-1. Review and commit the current source changes, then build the exact Store MSIX
-   from the clean commit with `-StoreSubmission`; verify package allowlist,
-   dependency versions, hashes, notices, absence of private state, and the
-   source-revision receipt.
-2. Verify first launch, update, sign-in startup, tray restore, shortcuts, media
+1. Verify first launch, update, sign-in startup, tray restore, shortcuts, media
    fallback, Node startup, state migration, and uninstall on an independent
    supported Windows 11 device when one is available. The current-device
    installed candidate has already passed the corresponding integration suite.
-3. Run the Windows App Certification Kit against the exact candidate on the
-   independent device and resolve every applicable failure. Partner Center
-   certification remains the authoritative Store gate.
-4. Complete the Partner Center listing, properties, IARC age rating,
+2. Complete the Partner Center listing, properties, IARC age rating,
    `runFullTrust` justification, target markets, and product/trademark review
    using the prepared listing kit.
-5. Repeat secret, dependency, malware, and source security scans against the
-   exact committed Store candidate and uploaded MSIX on a machine where the
-   required security tooling is enabled.
-6. Pass Partner Center certification and verify the resulting Store-signed
+3. Upload the exact verified MSIX and resolve every Partner Center package or
+   policy validation warning. Partner Center certification remains the
+   authoritative Store gate.
+4. Pass Partner Center certification and verify the resulting Store-signed
    installation.
 
 Until these gates pass, generated MSIX and legacy installer files are
@@ -92,7 +96,7 @@ development artifacts and must not be described as official downloads.
 | Receipt | The Store build writes package-relative file sizes and SHA-256 values plus the final MSIX hash. |
 | Public web | Product, privacy, and support pages are deployed over HTTPS through GitHub Pages workflow run `30536510159`. |
 | Store handoff | Four 1366 × 768 screenshots, brand assets, bilingual listing copy, and the independent Windows 11 lifecycle checklist are prepared. |
-| Current verification | 55/55 integration, 27/27 official-security baseline, 11/11 network-boundary, 18/18 release, and 14/14 MSIX checks pass locally. Working-tree prospective public source: 72 files, zero findings. Exact-candidate malware and WACK evidence remain HOLD. |
+| Current verification | 55/55 integration, 27/27 official-security baseline, 11/11 network-boundary, 18/18 release, and 14/14 Store-candidate checks pass locally. The prospective public-source scan found zero findings, WACK reported overall PASS, and ESET reported zero detections for the exact MSIX. Independent-device lifecycle and Partner Center certification remain open. |
 
 ## Public package contents
 
