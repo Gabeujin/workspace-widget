@@ -28,8 +28,9 @@ packages are unsigned and must never be presented as public downloads.
   endpoint every 30 seconds.
 - Start a trusted offline Node project or JavaScript entry, wait for its health
   endpoint, and open it when ready.
-- Use native Windows icons, smooth scrolling, free move/resize, opacity and
-  hover brightness, **Always on top**, and a 96 px edge-snapped **MIN UI** mode.
+- Use native Windows icons or eight original MIT-licensed semantic line icons,
+  smooth scrolling, free move/resize, opacity and hover brightness, **Always on
+  top**, and a 96 px edge-snapped **MIN UI** mode.
 - Choose Midnight, Neon, Sakura, Monochrome, or fully custom colors.
 - Use a local image, animated GIF, video, bounded public HTTPS static image, or
   YouTube poster as a background. Each shortcut may have its own icon and hover
@@ -116,7 +117,11 @@ itself; the configured project must already be runnable.
 
 Open Settings → **Appearance & media** to set a theme, custom ARGB colors,
 background media, opacity, and video mute state. Edit a shortcut to set its
-custom icon and hover media.
+custom icon, built-in semantic icon, and hover media. A verified custom icon
+takes priority, followed by the selected built-in icon, the Windows target icon,
+and the existing Fluent fallback. See the
+[semantic icon library](docs/SEMANTIC-ICON-LIBRARY.md) for meaning, provenance,
+and validation rules.
 
 Remote media must resolve to a public HTTPS address. Remote raster images are
 downloaded through a bounded, redirect-checked 10 MB cache before Windows

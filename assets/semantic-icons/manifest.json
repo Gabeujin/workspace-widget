@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "collection": "Workspace Widget Semantic Essentials",
+  "license": "MIT",
+  "provenance": {
+    "type": "original-work",
+    "statement": "Independently authored for Workspace Widget. No third-party logo, icon path, bitmap, or trademark-derived artwork is included."
+  },
+  "geometry": {
+    "viewBox": "0 0 24 24",
+    "strokeWidth": 1.75,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "safeInset": 2,
+    "rasterForeground": "#F6F9FF",
+    "rasterSize": 256
+  },
+  "icons": [
+    {
+      "id": "launch",
+      "name": "Launch",
+      "description": "Open an application, file, folder, or URL.",
+      "svg": "launch.svg",
+      "png": "launch.png"
+    },
+    {
+      "id": "service",
+      "name": "Service",
+      "description": "A local or remote service with an optional health contract.",
+      "svg": "service.svg",
+      "png": "service.png"
+    },
+    {
+      "id": "people",
+      "name": "People",
+      "description": "Users, access, or collaboration.",
+      "svg": "people.svg",
+      "png": "people.png"
+    },
+    {
+      "id": "workspace",
+      "name": "Workspace",
+      "description": "A project, workspace, or grouped work area.",
+      "svg": "workspace.svg",
+      "png": "workspace.png"
+    },
+    {
+      "id": "web",
+      "name": "Web",
+      "description": "A web destination without implying network health.",
+      "svg": "web.svg",
+      "png": "web.png"
+    },
+    {
+      "id": "data",
+      "name": "Data",
+      "description": "Data, reporting, or analytics.",
+      "svg": "data.svg",
+      "png": "data.png"
+    },
+    {
+      "id": "automation",
+      "name": "Automation",
+      "description": "Automated work or an agent workflow.",
+      "svg": "automation.svg",
+      "png": "automation.png"
+    },
+    {
+      "id": "lab",
+      "name": "Lab",
+      "description": "An experiment, prototype, or non-production tool.",
+      "svg": "lab.svg",
+      "png": "lab.png"
+    }
+  ]
+}

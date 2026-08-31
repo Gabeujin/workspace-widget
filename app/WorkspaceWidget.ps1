@@ -13,6 +13,7 @@ param(
   [string]$ShortcutProbePath,
   [switch]$GeometryProbe,
   [switch]$MediaProbe,
+  [switch]$IconResolutionProbe,
   [string]$RemoteAssetProbeSource,
   [switch]$NetworkBoundaryProbe,
   [double]$GeometryProbeLeft = 1000000,
@@ -54,6 +55,14 @@ $script:maximumLocalImageBytes = 64MB
 $script:maximumLocalVideoBytes = 2GB
 $script:maximumGifFrames = 240
 $script:maximumGifAggregatePixels = 256000000
+$script:semanticIconRoot = Join-Path $ProjectRoot 'assets\semantic-icons'
+$script:semanticIconManifestPath = Join-Path $script:semanticIconRoot 'manifest.json'
+$script:semanticIconDefinitionsInitialized = $false
+$script:semanticIconDefinitions = @()
+$script:semanticIconFailureLogged = $false
+$script:invalidSemanticIconIds = [System.Collections.Generic.HashSet[string]]::new(
+  [System.StringComparer]::OrdinalIgnoreCase
+)
 
 $packageNodePath = Join-Path $projectRuntimeRoot 'node\node.exe'
 $packageNpmPath = Join-Path $projectRuntimeRoot 'node\npm.cmd'
@@ -140,6 +149,109 @@ function Write-RuntimeLog {
   } catch {
     # Logging must never take the widget down.
   }
+}
+
+function Get-WorkspaceSemanticIconDefinitions {
+  if ($script:semanticIconDefinitionsInitialized) {
+    return @($script:semanticIconDefinitions)
+  }
+
+  $script:semanticIconDefinitionsInitialized = $true
+  try {
+    if (-not (Test-Path -LiteralPath $script:semanticIconManifestPath -PathType Leaf)) {
+      throw 'The semantic icon manifest is missing.'
+    }
+    $manifestFile = Get-Item -LiteralPath $script:semanticIconManifestPath
+    if ($manifestFile.Length -gt 64KB) {
+      throw 'The semantic icon manifest is larger than 64 KiB.'
+    }
+    $manifest = Get-Content -LiteralPath $script:semanticIconManifestPath -Raw |
+      ConvertFrom-Json
+    $schemaVersionValue = $manifest.PSObject.Properties['schemaVersion'].Value
+    $schemaVersionIsInteger = (
+      $schemaVersionValue -is [int] -or
+      $schemaVersionValue -is [long]
+    )
+    if (-not $schemaVersionIsInteger -or [long]$schemaVersionValue -ne 1) {
+      throw 'The semantic icon manifest schema is unsupported.'
+    }
+    if (
+      [string]$manifest.provenance.type -ne 'original-work' -or
+      [string]$manifest.license -ne 'MIT'
+    ) {
+      throw 'The semantic icon manifest has no accepted provenance.'
+    }
+    $resolvedRoot = [System.IO.Path]::GetFullPath($script:semanticIconRoot).TrimEnd('\') + '\'
+    $definitions = [System.Collections.Generic.List[object]]::new()
+    $seenIds = [System.Collections.Generic.HashSet[string]]::new(
+      [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($icon in @($manifest.icons)) {
+      if (
+        $icon.id -isnot [string] -or
+        $icon.png -isnot [string] -or
+        $icon.name -isnot [string] -or
+        $icon.description -isnot [string]
+      ) {
+        throw 'A semantic icon entry contains a non-string field.'
+      }
+      $id = ([string]$icon.id).Trim().ToLowerInvariant()
+      $pngName = ([string]$icon.png).Trim()
+      $name = ([string]$icon.name).Trim()
+      $description = ([string]$icon.description).Trim()
+      if ($id -notmatch '^[a-z][a-z0-9-]{1,31}$') {
+        throw "Semantic icon id '$id' is invalid."
+      }
+      if (-not $seenIds.Add($id)) {
+        throw "Semantic icon id '$id' is duplicated."
+      }
+      if (
+        [string]::IsNullOrWhiteSpace($name) -or
+        $name.Length -gt 32 -or
+        $name -match '[\x00-\x1F\x7F]'
+      ) {
+        throw "Semantic icon '$id' has an invalid display name."
+      }
+      if (
+        [string]::IsNullOrWhiteSpace($description) -or
+        $description.Length -gt 180 -or
+        $description -match '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'
+      ) {
+        throw "Semantic icon '$id' has an invalid description."
+      }
+      if (-not [string]::Equals($pngName, "$id.png", [System.StringComparison]::Ordinal)) {
+        throw "Semantic icon '$id' does not use its canonical PNG filename."
+      }
+      $pngPath = [System.IO.Path]::GetFullPath((Join-Path $script:semanticIconRoot $pngName))
+      if (
+        -not $pngPath.StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $pngPath -PathType Leaf)
+      ) {
+        throw "Semantic icon '$id' has no trusted PNG asset."
+      }
+      $pngFile = Get-Item -LiteralPath $pngPath
+      if ($pngFile.Length -gt 2MB) {
+        throw "Semantic icon '$id' is larger than 2 MiB."
+      }
+      $definitions.Add([pscustomobject][ordered]@{
+          id = $id
+          name = $name
+          description = $description
+          pngPath = $pngPath
+        })
+    }
+    if ($definitions.Count -lt 1 -or $definitions.Count -gt 24) {
+      throw 'The semantic icon manifest must contain between 1 and 24 icons.'
+    }
+    $script:semanticIconDefinitions = @($definitions)
+  } catch {
+    $script:semanticIconDefinitions = @()
+    if (-not $script:semanticIconFailureLogged) {
+      Write-RuntimeLog "Semantic icon library was disabled. $($_.Exception.Message)"
+      $script:semanticIconFailureLogged = $true
+    }
+  }
+  return @($script:semanticIconDefinitions)
 }
 
 function Get-WorkspaceWidgetInstanceNames {
@@ -282,6 +394,7 @@ function Initialize-ItemLaunchMetadata {
     launchWindowStyle = 1
     customIcon = ''
     customIconCache = ''
+    iconPreset = ''
     hoverMedia = ''
     hoverMediaKind = 'auto'
     hoverMediaMuted = $true
@@ -606,6 +719,7 @@ if ($Probe) {
       lnkTargetResolution = $true
       visibleWorkAreaRecovery = $true
       mediaCustomization = $true
+      semanticIcons = @(Get-WorkspaceSemanticIconDefinitions).Count -gt 0
       customThemes = $true
       youtubeHoverPreview = $true
     }
@@ -1996,6 +2110,7 @@ $script:readySignalSent = $false
 if (
   -not $StartupProbe -and
   -not $StartupTargetProbe -and
+  -not $IconResolutionProbe -and
   [string]::IsNullOrWhiteSpace($RemoteAssetProbeSource) -and
   -not $NetworkBoundaryProbe
 ) {
@@ -2163,6 +2278,7 @@ if (
   -not $StartupProbe -and
   -not $StartupTargetProbe -and
   -not $StateLifecycleProbe -and
+  -not $IconResolutionProbe -and
   [string]::IsNullOrWhiteSpace($CapturePath)
 ) {
   Show-StartupSplash -LogoPath (Join-Path $ProjectRoot 'assets\workspace-widget-logo.png')
@@ -2656,6 +2772,7 @@ function Add-Targets {
       launchWindowStyle = $launchWindowStyle
       customIcon = ''
       customIconCache = ''
+      iconPreset = ''
       hoverMedia = ''
       hoverMediaKind = 'auto'
       hoverMediaMuted = $true
@@ -2826,7 +2943,110 @@ function Show-ItemDialog {
   $healthBox = Add-DialogField -Label 'Health URL (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.health }) -Help 'A URL that returns HTTP 2xx or 3xx when healthy.'
   $startupTargetBox = Add-DialogField -Label 'Node start target (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.startupTarget }) -Help 'A .js/.mjs/.cjs entry file, or a project folder containing package.json.'
   $startupArgsBox = Add-DialogField -Label 'Start script / arguments (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.startupArgs }) -Help 'For a folder, enter the package script name. For a JS entry file, enter its arguments.'
-  $customIconBox = Add-DialogField -Label 'Custom icon image (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.customIcon }) -Help 'A local image, a pasted clipboard image, or a public HTTPS PNG, JPG, GIF, ICO, BMP, or static SVG URL.'
+  $semanticIconLabel = New-TextBlock `
+    -Text 'Built-in icon (optional)' `
+    -Size 11 `
+    -Color '#FFA9B9D1'
+  $semanticIconLabel.Margin = [System.Windows.Thickness]::new(0, 0, 0, 5)
+  $stack.Children.Add($semanticIconLabel) | Out-Null
+  $semanticIconBox = [System.Windows.Controls.ComboBox]::new()
+  $semanticIconBox.Height = 42
+  $semanticIconBox.Padding = [System.Windows.Thickness]::new(7, 4, 7, 4)
+  $semanticIconBox.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
+  $semanticIconBox.Background = Convert-ToBrush '#FF0F203B'
+  $semanticIconBox.Foreground = Convert-ToBrush '#FFF6F9FF'
+  $semanticIconBox.BorderBrush = Convert-ToBrush '#665C8AC6'
+  $semanticIconBox.MaxDropDownHeight = 294
+  $semanticIconBox.ToolTip = 'Choose an original Workspace Widget semantic icon, or keep automatic target icon resolution.'
+  [System.Windows.Automation.AutomationProperties]::SetName(
+    $semanticIconBox,
+    'Built-in icon'
+  )
+  [System.Windows.Automation.AutomationProperties]::SetHelpText(
+    $semanticIconBox,
+    'Custom icons take priority. Automatic uses the Windows target icon or the existing fallback glyph.'
+  )
+  [System.Windows.Automation.AutomationProperties]::SetLabeledBy(
+    $semanticIconBox,
+    $semanticIconLabel
+  )
+
+  function New-SemanticIconComboItem {
+    param(
+      [string]$Id,
+      [string]$Name,
+      [string]$Description,
+      [string]$PngPath
+    )
+
+    $item = [System.Windows.Controls.ComboBoxItem]::new()
+    $item.Tag = $Id
+    $item.Padding = [System.Windows.Thickness]::new(5)
+    $item.Foreground = Convert-ToBrush '#FFF6F9FF'
+    $item.ToolTip = $Description
+    $row = [System.Windows.Controls.StackPanel]::new()
+    $row.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+    if (-not [string]::IsNullOrWhiteSpace($PngPath)) {
+      $image = [System.Windows.Controls.Image]::new()
+      $image.Source = New-MediaBitmap -Source $PngPath -Kind 'image'
+      $image.Width = 24
+      $image.Height = 24
+      $image.Stretch = [System.Windows.Media.Stretch]::Uniform
+      $image.Margin = [System.Windows.Thickness]::new(0, 0, 10, 0)
+      [System.Windows.Media.RenderOptions]::SetBitmapScalingMode(
+        $image,
+        [System.Windows.Media.BitmapScalingMode]::HighQuality
+      )
+      $row.Children.Add($image) | Out-Null
+    }
+    $text = New-TextBlock -Text $Name -Size 11 -Color '#FFF6F9FF'
+    $text.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    $row.Children.Add($text) | Out-Null
+    $item.Content = $row
+    [System.Windows.Automation.AutomationProperties]::SetName(
+      $item,
+      $(if ([string]::IsNullOrWhiteSpace($Id)) { 'Automatic icon' } else { "$Name icon" })
+    )
+    [System.Windows.Automation.AutomationProperties]::SetHelpText($item, $Description)
+    return $item
+  }
+
+  $automaticIconItem = New-SemanticIconComboItem `
+    -Id '' `
+    -Name 'Automatic' `
+    -Description 'Use a verified custom icon, Windows target icon, or the existing fallback glyph.' `
+    -PngPath ''
+  $semanticIconBox.Items.Add($automaticIconItem) | Out-Null
+  foreach ($definition in @(Get-WorkspaceSemanticIconDefinitions)) {
+    $semanticIconBox.Items.Add((New-SemanticIconComboItem `
+          -Id ([string]$definition.id) `
+          -Name ([string]$definition.name) `
+          -Description ([string]$definition.description) `
+          -PngPath ([string]$definition.pngPath)
+      )) | Out-Null
+  }
+  $existingIconPreset = if (
+    $null -ne $ExistingItem -and
+    $ExistingItem.PSObject.Properties.Name -contains 'iconPreset'
+  ) {
+    ([string]$ExistingItem.iconPreset).Trim().ToLowerInvariant()
+  } else {
+    ''
+  }
+  $semanticIconBox.SelectedIndex = 0
+  for ($index = 0; $index -lt $semanticIconBox.Items.Count; $index++) {
+    if ([string]::Equals(
+        [string]$semanticIconBox.Items[$index].Tag,
+        $existingIconPreset,
+        [System.StringComparison]::OrdinalIgnoreCase
+      )) {
+      $semanticIconBox.SelectedIndex = $index
+      break
+    }
+  }
+  $stack.Children.Add($semanticIconBox) | Out-Null
+
+  $customIconBox = Add-DialogField -Label 'Custom icon image (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.customIcon }) -Help 'A verified custom icon takes priority over the built-in selection. Use a local image, clipboard image, or public HTTPS PNG, JPG, GIF, ICO, BMP, or static SVG URL.'
   $customIconPreviewRow = [System.Windows.Controls.Grid]::new()
   $customIconPreviewRow.Margin = [System.Windows.Thickness]::new(0, -2, 0, 12)
   $customIconPreviewRow.ColumnDefinitions.Add(
@@ -3542,6 +3762,11 @@ function Show-ItemDialog {
       } else {
         ''
       }
+      $iconPreset = if ($null -ne $semanticIconBox.SelectedItem) {
+        ([string]$semanticIconBox.SelectedItem.Tag).Trim().ToLowerInvariant()
+      } else {
+        ''
+      }
       $hoverMedia = $hoverMediaBox.Text.Trim()
       $hoverMediaKind = Resolve-MediaKind -Source $hoverMedia -ConfiguredKind 'auto'
       $hoverMediaMuted = [bool]$hoverMuteCheck.IsChecked
@@ -3799,6 +4024,7 @@ function Show-ItemDialog {
           launchWindowStyle = $launchWindowStyle
           customIcon = $customIcon
           customIconCache = $customIconCache
+          iconPreset = $iconPreset
           hoverMedia = $hoverMedia
           hoverMediaKind = $hoverMediaKind
           hoverMediaMuted = $hoverMediaMuted
@@ -3823,6 +4049,7 @@ function Show-ItemDialog {
         $ExistingItem.launchWindowStyle = $launchWindowStyle
         $ExistingItem.customIcon = $customIcon
         $ExistingItem.customIconCache = $customIconCache
+        $ExistingItem.iconPreset = $iconPreset
         $ExistingItem.hoverMedia = $hoverMedia
         $ExistingItem.hoverMediaKind = $hoverMediaKind
         $ExistingItem.hoverMediaMuted = $hoverMediaMuted
@@ -3888,17 +4115,60 @@ function Show-ItemDialog {
   return $dialog.ShowDialog()
 }
 
-function Get-ItemIcon {
+function Get-SemanticIconSource {
+  param($Item)
+
+  if (
+    $Item.PSObject.Properties.Name -notcontains 'iconPreset' -or
+    [string]::IsNullOrWhiteSpace([string]$Item.iconPreset)
+  ) {
+    return $null
+  }
+
+  $preset = ([string]$Item.iconPreset).Trim().ToLowerInvariant()
+  $definition = @(
+    Get-WorkspaceSemanticIconDefinitions |
+      Where-Object {
+        [string]::Equals(
+          [string]$_.id,
+          $preset,
+          [System.StringComparison]::OrdinalIgnoreCase
+        )
+      } |
+      Select-Object -First 1
+  )
+  if ($definition.Count -eq 0) {
+    if ($script:invalidSemanticIconIds.Add($preset)) {
+      Write-RuntimeLog "Unknown semantic icon preset '$preset' was ignored."
+    }
+    return $null
+  }
+  try {
+    return New-MediaBitmap -Source ([string]$definition[0].pngPath) -Kind 'image'
+  } catch {
+    if ($script:invalidSemanticIconIds.Add($preset)) {
+      Write-RuntimeLog "Semantic icon '$preset' could not load. $($_.Exception.Message)"
+    }
+    return $null
+  }
+}
+
+function Get-ItemIconPresentation {
   param($Item)
 
   $customIcon = Get-CustomIconSource -Item $Item
   if ($null -ne $customIcon) {
-    return $customIcon
+    return [pscustomobject][ordered]@{ kind = 'Custom'; source = $customIcon }
+  }
+
+  $semanticIcon = Get-SemanticIconSource -Item $Item
+  if ($null -ne $semanticIcon) {
+    return [pscustomobject][ordered]@{ kind = 'Semantic'; source = $semanticIcon }
   }
 
   $target = [string]$Item.target
   if ($target -match '^https?://') {
-    return $null
+    return [pscustomobject][ordered]@{ kind = 'None'; source = $null }
   }
   try {
     $iconTarget = $target
@@ -3923,15 +4193,25 @@ function Get-ItemIcon {
         [int]$iconResourceIndex
       )
       if ($null -ne $resourceIcon) {
-        return $resourceIcon
+        return [pscustomobject][ordered]@{ kind = 'Shell'; source = $resourceIcon }
       }
     }
     $isDirectory = Test-Path -LiteralPath $iconTarget -PathType Container
-    return [WorkspaceWidgetNative]::GetShellIcon($iconTarget, $isDirectory)
+    $shellIcon = [WorkspaceWidgetNative]::GetShellIcon($iconTarget, $isDirectory)
+    return [pscustomobject][ordered]@{
+      kind = if ($null -ne $shellIcon) { 'Shell' } else { 'None' }
+      source = $shellIcon
+    }
   } catch {
     Write-RuntimeLog "Icon load failed for '$target'. $($_.Exception.Message)"
-    return $null
+    return [pscustomobject][ordered]@{ kind = 'None'; source = $null }
   }
+}
+
+function Get-ItemIcon {
+  param($Item)
+
+  return (Get-ItemIconPresentation -Item $Item).source
 }
 
 function Test-HasNodeStartup {
@@ -6594,6 +6874,64 @@ function Get-CustomIconSource {
   }
 }
 
+function Set-LauncherCardHealthPresentation {
+  param(
+    $Item,
+    [ValidateSet('Checking', 'Online', 'Offline', 'Unavailable')]
+    [string]$State,
+    [switch]$Announce
+  )
+
+  $itemId = [string]$Item.id
+  if (-not $script:healthDots.ContainsKey($itemId)) {
+    return
+  }
+  $dot = $script:healthDots[$itemId]
+  $dot.Fill = Convert-ToBrush $(switch ($State) {
+      'Online' { '#FF35DE8F' }
+      'Checking' { '#FF7D91AE' }
+      default { '#FFFF697D' }
+    })
+  $statusText = switch ($State) {
+    'Offline' { 'Offline · click card to start with bundled Node' }
+    default { $State }
+  }
+  $dot.ToolTip = $statusText
+  [System.Windows.Automation.AutomationProperties]::SetName(
+    $dot,
+    "$($Item.name) status: $statusText"
+  )
+  [System.Windows.Automation.AutomationProperties]::SetLiveSetting(
+    $dot,
+    [System.Windows.Automation.AutomationLiveSetting]::Polite
+  )
+
+  $card = $dot.Tag
+  if ($null -ne $card) {
+    [System.Windows.Automation.AutomationProperties]::SetName(
+      $card,
+      "Open $($Item.name). Status: $statusText."
+    )
+    [System.Windows.Automation.AutomationProperties]::SetHelpText(
+      $card,
+      "Target: $($Item.target). Health status: $statusText."
+    )
+  }
+  if ($Announce) {
+    try {
+      $peer = [System.Windows.Automation.Peers.UIElementAutomationPeer]::FromElement($dot)
+      if ($null -eq $peer) {
+        $peer = [System.Windows.Automation.Peers.FrameworkElementAutomationPeer]::new($dot)
+      }
+      $peer.RaiseAutomationEvent(
+        [System.Windows.Automation.Peers.AutomationEvents]::LiveRegionChanged
+      )
+    } catch {
+      Write-RuntimeLog "Health accessibility announcement failed for '$($Item.name)'."
+    }
+  }
+}
+
 function New-LauncherCard {
   param($Item)
 
@@ -6634,15 +6972,30 @@ function New-LauncherCard {
     $grid.RowDefinitions.Add($subtitleRow) | Out-Null
   }
 
-  $iconSource = Get-ItemIcon -Item $Item
+  $iconPresentation = Get-ItemIconPresentation -Item $Item
+  $iconSource = $iconPresentation.source
   if ($null -ne $iconSource) {
-    $image = [System.Windows.Controls.Image]::new()
-    $image.Source = $iconSource
-    $image.Stretch = [System.Windows.Media.Stretch]::Uniform
-    [System.Windows.Media.RenderOptions]::SetBitmapScalingMode(
-      $image,
-      [System.Windows.Media.BitmapScalingMode]::HighQuality
-    )
+    $image = if ([string]$iconPresentation.kind -eq 'Semantic') {
+      $maskHost = [System.Windows.Controls.Border]::new()
+      $maskBrush = [System.Windows.Media.ImageBrush]::new($iconSource)
+      $maskBrush.Stretch = [System.Windows.Media.Stretch]::Uniform
+      $maskHost.OpacityMask = $maskBrush
+      $maskHost.Background = if ([System.Windows.SystemParameters]::HighContrast) {
+        [System.Windows.SystemColors]::ControlTextBrush
+      } else {
+        Convert-ToBrush $script:themePalette.text
+      }
+      $maskHost
+    } else {
+      $sourceImage = [System.Windows.Controls.Image]::new()
+      $sourceImage.Source = $iconSource
+      $sourceImage.Stretch = [System.Windows.Media.Stretch]::Uniform
+      [System.Windows.Media.RenderOptions]::SetBitmapScalingMode(
+        $sourceImage,
+        [System.Windows.Media.BitmapScalingMode]::HighQuality
+      )
+      $sourceImage
+    }
     $image.Width = if ($isMinUi) { 34 } else { 44 }
     $image.Height = $image.Width
     $image.Margin = if ($isMinUi) {
@@ -6702,12 +7055,14 @@ function New-LauncherCard {
       [System.Windows.Thickness]::new(0)
     }
     $dot.ToolTip = 'Checking'
+    $dot.Tag = $card
     if ($isMinUi) {
       $grid.Children.Add($dot) | Out-Null
     } else {
       $subtitleGrid.Children.Add($dot) | Out-Null
     }
     $script:healthDots[[string]$Item.id] = $dot
+    Set-LauncherCardHealthPresentation -Item $Item -State 'Checking'
   }
 
   $startupHint = if (Test-HasNodeStartup -Item $Item) {
@@ -6984,12 +7339,10 @@ function Start-HealthCheck {
       }
       $script:healthStates[[string]$item.id] = $false
       if ($script:healthDots.ContainsKey([string]$item.id)) {
-        $script:healthDots[[string]$item.id].Fill = Convert-ToBrush '#FFFF697D'
-        $script:healthDots[[string]$item.id].ToolTip = if (Test-HasNodeStartup -Item $item) {
-          'Offline · click card to start with bundled Node'
-        } else {
-          'Unavailable'
-        }
+        Set-LauncherCardHealthPresentation `
+          -Item $item `
+          -State $(if (Test-HasNodeStartup -Item $item) { 'Offline' } else { 'Unavailable' }) `
+          -Announce
       }
     }
   }
@@ -7030,14 +7383,16 @@ function Complete-HealthCheck {
     $itemId = [string]$pending.item.id
     $script:healthStates[$itemId] = $healthy
     if ($script:healthDots.ContainsKey($itemId)) {
-      $script:healthDots[$itemId].Fill = Convert-ToBrush $(if ($healthy) { '#FF35DE8F' } else { '#FFFF697D' })
-      $script:healthDots[$itemId].ToolTip = if ($healthy) {
-        'Online'
-      } elseif (Test-HasNodeStartup -Item $pending.item) {
-        'Offline · click card to start with bundled Node'
-      } else {
-        'Unavailable'
-      }
+      Set-LauncherCardHealthPresentation `
+        -Item $pending.item `
+        -State $(if ($healthy) {
+            'Online'
+          } elseif (Test-HasNodeStartup -Item $pending.item) {
+            'Offline'
+          } else {
+            'Unavailable'
+          }) `
+        -Announce
     }
 
     if ($script:pendingOpen.ContainsKey($itemId)) {
@@ -7138,6 +7493,113 @@ function Capture-Widget {
     Write-RuntimeLog "Capture failed. $($_.Exception.Message)"
     throw
   }
+}
+
+if ($IconResolutionProbe) {
+  $semanticProbePath = Join-Path $script:semanticIconRoot 'launch.png'
+  $probeItems = @(
+    [pscustomobject][ordered]@{
+      case = 'custom-over-semantic'
+      name = 'Custom priority probe'
+      target = 'https://example.invalid/custom'
+      customIcon = $semanticProbePath
+      customIconCache = ''
+      iconPreset = 'service'
+      iconLocation = ''
+    },
+    [pscustomobject][ordered]@{
+      case = 'semantic-over-web-fallback'
+      name = 'Semantic priority probe'
+      target = 'https://example.invalid/semantic'
+      customIcon = ''
+      customIconCache = ''
+      iconPreset = 'service'
+      iconLocation = ''
+    },
+    [pscustomobject][ordered]@{
+      case = 'shell-target'
+      name = 'Shell priority probe'
+      target = Join-Path $env:WINDIR 'System32\notepad.exe'
+      customIcon = ''
+      customIconCache = ''
+      iconPreset = ''
+      iconLocation = ''
+    },
+    [pscustomobject][ordered]@{
+      case = 'web-fluent-fallback'
+      name = 'Web fallback probe'
+      target = 'https://example.invalid/fallback'
+      customIcon = ''
+      customIconCache = ''
+      iconPreset = ''
+      iconLocation = ''
+    }
+  )
+  $expectedKinds = @('Custom', 'Semantic', 'Shell', 'None')
+  $results = for ($index = 0; $index -lt $probeItems.Count; $index++) {
+    $presentation = Get-ItemIconPresentation -Item $probeItems[$index]
+    [pscustomobject][ordered]@{
+      case = [string]$probeItems[$index].case
+      expectedKind = $expectedKinds[$index]
+      actualKind = [string]$presentation.kind
+      hasImageSource = $null -ne $presentation.source
+      matched = (
+        [string]$presentation.kind -eq $expectedKinds[$index] -and
+        $(if ($expectedKinds[$index] -eq 'None') {
+            $null -eq $presentation.source
+          } else {
+            $null -ne $presentation.source
+          })
+      )
+    }
+  }
+  $script:healthDots = @{}
+  $accessibilityItem = [pscustomobject][ordered]@{
+    id = 'semantic-health-accessibility-probe'
+    name = 'Semantic health probe'
+    target = 'http://127.0.0.1:9/'
+  }
+  $accessibilityCard = [System.Windows.Controls.Border]::new()
+  $accessibilityDot = [System.Windows.Shapes.Ellipse]::new()
+  $accessibilityDot.Tag = $accessibilityCard
+  $script:healthDots[[string]$accessibilityItem.id] = $accessibilityDot
+  Set-LauncherCardHealthPresentation -Item $accessibilityItem -State 'Checking'
+  $checkingName = [System.Windows.Automation.AutomationProperties]::GetName(
+    $accessibilityCard
+  )
+  Set-LauncherCardHealthPresentation -Item $accessibilityItem -State 'Online'
+  $onlineName = [System.Windows.Automation.AutomationProperties]::GetName(
+    $accessibilityCard
+  )
+  $dotName = [System.Windows.Automation.AutomationProperties]::GetName(
+    $accessibilityDot
+  )
+  $liveSetting = [System.Windows.Automation.AutomationProperties]::GetLiveSetting(
+    $accessibilityDot
+  ).ToString()
+  $accessibilityMatched = (
+    $checkingName -match 'Status: Checking' -and
+    $onlineName -match 'Status: Online' -and
+    $dotName -match 'status: Online' -and
+    $liveSetting -eq 'Polite'
+  )
+  $success = (
+    @($results | Where-Object { -not $_.matched }).Count -eq 0 -and
+    $accessibilityMatched
+  )
+  [pscustomobject][ordered]@{
+    success = $success
+    resolutionOrder = @('Custom', 'Semantic', 'Shell', 'Fluent fallback')
+    results = @($results)
+    accessibility = [ordered]@{
+      matched = $accessibilityMatched
+      checkingCardName = $checkingName
+      onlineCardName = $onlineName
+      onlineDotName = $dotName
+      liveSetting = $liveSetting
+    }
+  } | ConvertTo-Json -Depth 6
+  exit $(if ($success) { 0 } else { 1 })
 }
 
 if ($StartupTargetProbe) {

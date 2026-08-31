@@ -50,6 +50,15 @@ Node.js includes software under additional compatible licenses. The complete
 official distribution and its license files are retained in
 `runtime\node`.
 
+## Workspace Widget Semantic Essentials
+
+The built-in Launch, Service, People, Workspace, Web, Data, Automation, and Lab
+icons are original work independently authored for Workspace Widget and are
+distributed under this repository's MIT license. They contain no third-party
+logo, icon path, bitmap, font glyph, or trademark-derived artwork. App identities
+remain user-provided or system-resolved assets and are not relicensed by this
+set.
+
 ## User-provided media
 
 Workspace Widget does not ship third-party logos, character artwork, game

@@ -16,7 +16,8 @@
 
 1. Responsive product identity, aggregate health, and compact toolbar.
 2. Optional opacity or settings panel.
-3. Launcher-card grid with real shell icons or Fluent fallback icons.
+3. Launcher-card grid with verified custom icons, original semantic icons, real
+   shell icons, or Fluent fallback icons.
 4. Add/drop affordance.
 5. Refresh action, feedback toast, timestamp, and resize handle.
 
@@ -37,6 +38,22 @@
 | Card radius | `14` |
 | Font | `Segoe UI Variable Text`, fallback `Segoe UI` |
 | Icon font | `Segoe Fluent Icons` |
+
+## Semantic icon DNA
+
+- Built-in icons are product-local meanings, not substitutes for third-party app
+  identities: Launch, Service, People, Workspace, Web, Data, Automation, and Lab.
+- SVG masters use a `24 × 24` grid, 2-unit safe inset, transparent background,
+  `currentColor`, and a 1.75-unit round-cap/round-join stroke.
+- WPF cards use committed `256 × 256` transparent PNG renders as alpha masks,
+  recolored from the active text token (or the Windows high-contrast text
+  brush), then scaled to 34 px in MIN UI and 44 px in the standard grid.
+- Custom media remains highest priority. Semantic presets are followed by shell
+  resolution and the existing Fluent fallback, so older entries do not change.
+- Health is an independent overlay and accessible text state. Online, offline,
+  checking, and attention colors are never embedded in the semantic artwork.
+- A category with no truthful semantic match keeps Automatic; decorative or
+  brand-derived icon invention is not permitted.
 
 ## Product icon
 
@@ -98,6 +115,8 @@
 - Button hover, pressed, keyboard-focus, and disabled states use explicit dark
   surfaces and white text instead of Windows' low-contrast default styling.
 - Status is not color-only: aggregate count and tooltips provide text.
+- Health-enabled cards expose Checking, Online, Offline, or Unavailable in their
+  automation name, help text, and polite live-region update, including MIN UI.
 - The compact header icon exposes the Workspace Widget name and health summary
   to UI Automation even when the visible title is hidden.
 - Cards are focusable and support `Enter` / `Space`.

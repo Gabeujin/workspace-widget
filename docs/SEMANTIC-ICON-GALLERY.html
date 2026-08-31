@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workspace Widget Semantic Essentials</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #071120;
+      --panel: #09162b;
+      --card: #0f203b;
+      --card-hover: #162f56;
+      --text: #f6f9ff;
+      --muted: #a9b9d1;
+      --border: rgba(92, 138, 198, .52);
+      --accent: #3e8bff;
+      font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 85% 0%, rgba(62,139,255,.16), transparent 32rem),
+        var(--page);
+    }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 72px; }
+    header { display: grid; gap: 12px; margin-bottom: 32px; }
+    .eyebrow { color: #73a9ff; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(32px, 5vw, 58px); line-height: .98; letter-spacing: -.045em; }
+    header p { max-width: 720px; margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
+    .contract { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .chip { border: 1px solid var(--border); border-radius: 999px; padding: 7px 11px; color: var(--muted); font-size: 12px; background: rgba(15,32,59,.7); }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    article {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(15,32,59,.92);
+      padding: 18px;
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+    }
+    article:hover { transform: translateY(-2px); border-color: rgba(115,169,255,.8); background: var(--card-hover); }
+    .icon-stage { min-height: 92px; display: grid; place-items: center; border-radius: 14px; background: rgba(9,22,43,.78); }
+    .icon-stage img { width: 48px; height: 48px; object-fit: contain; }
+    h2 { margin: 16px 0 5px; font-size: 17px; letter-spacing: -.015em; }
+    article p { min-height: 42px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .sizes { display: flex; align-items: end; gap: 9px; min-height: 54px; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(92,138,198,.25); }
+    .sizes span { display: grid; gap: 5px; justify-items: center; color: var(--muted); font-size: 9px; }
+    .sizes img { display: block; width: var(--size); height: var(--size); }
+    footer { margin-top: 28px; padding: 18px 20px; border-left: 2px solid var(--accent); color: var(--muted); line-height: 1.6; background: rgba(9,22,43,.56); }
+    footer strong { color: var(--text); }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 520px) { main { width: min(100% - 24px, 1120px); padding-top: 32px; } .grid { grid-template-columns: 1fr; } article p { min-height: 0; } }
+    @media (prefers-reduced-motion: reduce) { article { transition: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">Workspace Widget · Original icon set</div>
+      <h1>Semantic Essentials</h1>
+      <p>Eight quiet line icons for Widget-owned meanings. App identities stay with verified custom or Windows shell icons; health remains an independent status layer.</p>
+      <div class="contract" aria-label="Icon contract">
+        <span class="chip">24 × 24 grid</span><span class="chip">1.75 stroke</span><span class="chip">2-unit safe inset</span><span class="chip">Transparent PNG</span><span class="chip">MIT original work</span>
+      </div>
+    </header>
+    <section class="grid" aria-label="Semantic icon set">
+      <article data-icon="launch"><div class="icon-stage"><img src="../assets/semantic-icons/launch.png" alt="Launch icon"></div><h2>Launch</h2><p>Open an application, file, folder, or URL.</p></article>
+      <article data-icon="service"><div class="icon-stage"><img src="../assets/semantic-icons/service.png" alt="Service icon"></div><h2>Service</h2><p>A local or remote service with an optional health contract.</p></article>
+      <article data-icon="people"><div class="icon-stage"><img src="../assets/semantic-icons/people.png" alt="People icon"></div><h2>People</h2><p>Users, access, and collaboration.</p></article>
+      <article data-icon="workspace"><div class="icon-stage"><img src="../assets/semantic-icons/workspace.png" alt="Workspace icon"></div><h2>Workspace</h2><p>A project, workspace, or grouped work area.</p></article>
+      <article data-icon="web"><div class="icon-stage"><img src="../assets/semantic-icons/web.png" alt="Web icon"></div><h2>Web</h2><p>A web destination without implying network health.</p></article>
+      <article data-icon="data"><div class="icon-stage"><img src="../assets/semantic-icons/data.png" alt="Data icon"></div><h2>Data</h2><p>Data, reporting, and analytics.</p></article>
+      <article data-icon="automation"><div class="icon-stage"><img src="../assets/semantic-icons/automation.png" alt="Automation icon"></div><h2>Automation</h2><p>Automated work or an agent workflow.</p></article>
+      <article data-icon="lab"><div class="icon-stage"><img src="../assets/semantic-icons/lab.png" alt="Lab icon"></div><h2>Lab</h2><p>An experiment, prototype, or non-production tool.</p></article>
+    </section>
+    <footer><strong>Status is separate by design.</strong> The Widget adds health text and a small status indicator only when a shortcut has a health contract. No red, green, or checking color is embedded in these icons.</footer>
+  </main>
+  <script>
+    for (const article of document.querySelectorAll('[data-icon]')) {
+      const id = article.dataset.icon;
+      const sizes = document.createElement('div');
+      sizes.className = 'sizes';
+      sizes.setAttribute('aria-label', `${id} rendered sizes`);
+      for (const size of [16, 20, 24, 32, 48]) {
+        const sample = document.createElement('span');
+        const image = document.createElement('img');
+        image.src = `../assets/semantic-icons/${id}.png`;
+        image.alt = '';
+        image.style.setProperty('--size', `${size}px`);
+        sample.append(image, document.createTextNode(String(size)));
+        sizes.append(sample);
+      }
+      article.append(sizes);
+    }
+  </script>
+</body>
+</html>

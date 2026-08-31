@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title">
+  <title id="title">Lab</title>
+  <path d="M9 3h6" />
+  <path d="M10 3v6l-6 9.2A1.8 1.8 0 0 0 5.5 21h13a1.8 1.8 0 0 0 1.5-2.8L14 9V3" />
+  <path d="M7.5 15h9" />
+  <path d="M9.5 12h5" />
+</svg>

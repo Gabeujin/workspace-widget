@@ -285,6 +285,7 @@ $stageDirectories = @(
   $stageRoot,
   (Join-Path $stageRoot 'app'),
   (Join-Path $stageRoot 'assets'),
+  (Join-Path $stageRoot 'assets\semantic-icons'),
   (Join-Path $stageRoot 'lib\webview2'),
   (Join-Path $stageRoot 'runtime\node'),
   (Join-Path $stageRoot 'scripts'),
@@ -295,6 +296,17 @@ foreach ($directory in $stageDirectories) {
   New-Item -ItemType Directory -Path $directory -Force | Out-Null
 }
 
+$semanticIconAssetNames = @(
+  'manifest.json',
+  'launch.svg', 'launch.png',
+  'service.svg', 'service.png',
+  'people.svg', 'people.png',
+  'workspace.svg', 'workspace.png',
+  'web.svg', 'web.png',
+  'data.svg', 'data.png',
+  'automation.svg', 'automation.png',
+  'lab.svg', 'lab.png'
+)
 $stageFiles = @(
   [pscustomobject]@{ Source = $hostExecutable; Destination = (Join-Path $stageRoot 'WorkspaceWidget.exe') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\WorkspaceWidget.ps1'); Destination = (Join-Path $stageRoot 'app\WorkspaceWidget.ps1') },
@@ -309,6 +321,8 @@ $stageFiles = @(
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\MICROSOFT-STORE-RELEASE.md'); Destination = (Join-Path $stageRoot 'docs\MICROSOFT-STORE-RELEASE.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\PARTNER-CENTER-SUBMISSION-KO.md'); Destination = (Join-Path $stageRoot 'docs\PARTNER-CENTER-SUBMISSION-KO.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\AI-ASSISTED-DEVELOPMENT.md'); Destination = (Join-Path $stageRoot 'docs\AI-ASSISTED-DEVELOPMENT.md') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\SEMANTIC-ICON-LIBRARY.md'); Destination = (Join-Path $stageRoot 'docs\SEMANTIC-ICON-LIBRARY.md') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\SEMANTIC-ICON-GALLERY.html'); Destination = (Join-Path $stageRoot 'docs\SEMANTIC-ICON-GALLERY.html') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'README.md'); Destination = (Join-Path $stageRoot 'README.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'PUBLIC-RELEASE-REVIEW.md'); Destination = (Join-Path $stageRoot 'PUBLIC-RELEASE-REVIEW.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'SECURITY.md'); Destination = (Join-Path $stageRoot 'SECURITY.md') },
@@ -316,6 +330,13 @@ $stageFiles = @(
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'LICENSE'); Destination = (Join-Path $stageRoot 'LICENSE') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'THIRD-PARTY-NOTICES.md'); Destination = (Join-Path $stageRoot 'THIRD-PARTY-NOTICES.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'CHANGELOG.md'); Destination = (Join-Path $stageRoot 'CHANGELOG.md') }
+) + @(
+  foreach ($assetName in $semanticIconAssetNames) {
+    [pscustomobject]@{
+      Source = Join-Path $ProjectRoot "assets\semantic-icons\$assetName"
+      Destination = Join-Path $stageRoot "assets\semantic-icons\$assetName"
+    }
+  }
 )
 foreach ($entry in $stageFiles) {
   if (-not (Test-Path -LiteralPath $entry.Source -PathType Leaf)) {

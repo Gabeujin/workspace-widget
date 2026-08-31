@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title">
+  <title id="title">Automation</title>
+  <circle cx="5" cy="12" r="2.5" />
+  <circle cx="18.5" cy="6" r="2.5" />
+  <circle cx="18.5" cy="18" r="2.5" />
+  <path d="m7.3 11 8.9-4" />
+  <path d="m7.3 13 8.9 4" />
+  <path d="m13.8 5.2 2.4 1.8-1 2.8" />
+  <path d="m13.8 18.8 2.4-1.8-1-2.8" />
+</svg>

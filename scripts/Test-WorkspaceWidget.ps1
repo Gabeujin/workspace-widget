@@ -42,6 +42,8 @@ $officialSecurityReview = Join-Path `
   $ProjectRoot `
   'security\official-security-review.json'
 $iconBuilder = Join-Path $ProjectRoot 'scripts\New-WorkspaceWidgetIcon.ps1'
+$semanticIconTest = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetSemanticIcons.ps1'
+$semanticIconManifest = Join-Path $ProjectRoot 'assets\semantic-icons\manifest.json'
 $baseBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'
 $msixBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'
 $msixVerifier = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetMsix.ps1'
@@ -173,6 +175,8 @@ $requiredFiles = @(
   $officialSecurityBaseline,
   $officialSecurityReview,
   $iconBuilder,
+  $semanticIconTest,
+  $semanticIconManifest,
   $baseBuilder,
   $msixBuilder,
   $msixVerifier,
@@ -211,6 +215,13 @@ $probe = & powershell.exe `
   -ProjectRoot $runtimeProjectRoot `
   -StatePath $StatePath `
   -Probe | ConvertFrom-Json
+$semanticIconProbe = & powershell.exe `
+  -NoProfile `
+  -NonInteractive `
+  -STA `
+  -ExecutionPolicy Bypass `
+  -File $semanticIconTest `
+  -ProjectRoot $ProjectRoot | ConvertFrom-Json
 $portListener = [System.Net.Sockets.TcpListener]::new(
   [System.Net.IPAddress]::Loopback,
   0
@@ -774,8 +785,13 @@ $checks = [ordered]@{
     $probe.supports.lnkTargetResolution -and
     $probe.supports.visibleWorkAreaRecovery -and
     $probe.supports.mediaCustomization -and
+    $probe.supports.semanticIcons -and
     $probe.supports.customThemes -and
     $probe.supports.youtubeHoverPreview
+  semanticIconLibrary = $semanticIconProbe.success -and
+    [double]$semanticIconProbe.score -ge 99.0 -and
+    [int]$semanticIconProbe.iconCount -eq 8 -and
+    @($semanticIconProbe.blockingFailures).Count -eq 0
   lnkTargetResolution = $shortcutProbe.success -and
     $shortcutProbe.kind -eq 'lnk' -and
     $shortcutProbe.shortcutResolved -and
@@ -1167,6 +1183,7 @@ $failed = @($checks.GetEnumerator() | Where-Object { -not $_.Value })
   failedChecks = @($failed | ForEach-Object { $_.Key })
   checks = $checks
   probe = $probe
+  semanticIconProbe = $semanticIconProbe
   startupProbe = $startupProbe
   shortcutProbe = $shortcutProbe
   geometryProbe = $geometryProbe

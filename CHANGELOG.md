@@ -10,6 +10,8 @@ certification.
 
 ### Added
 
+- Eight original MIT-licensed semantic line icons, a keyboard-readable built-in
+  icon selector, fail-closed asset validation, and a responsive review gallery.
 - Clipboard custom icons with PNG normalization, bounded dimensions, automatic
   preview, and explicit confirmation before Save.
 - Public HTTPS custom icons with automatic response, size, decode, and static

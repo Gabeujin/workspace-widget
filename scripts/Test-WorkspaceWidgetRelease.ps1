@@ -65,6 +65,17 @@ $expectedNodeRuntimeFiles = @(
   @($nodeRuntimeManifest.files) |
     ForEach-Object { "runtime\node\$([string]$_.path)" }
 ) + @('runtime\node\WORKSPACE-WIDGET-RUNTIME-MANIFEST.json')
+$expectedSemanticIconFiles = @(
+  'manifest.json',
+  'launch.svg', 'launch.png',
+  'service.svg', 'service.png',
+  'people.svg', 'people.png',
+  'workspace.svg', 'workspace.png',
+  'web.svg', 'web.png',
+  'data.svg', 'data.png',
+  'automation.svg', 'automation.png',
+  'lab.svg', 'lab.png'
+) | ForEach-Object { "assets\semantic-icons\$_" }
 
 $expectedStageFiles = @(
   'WorkspaceWidget.exe',
@@ -85,6 +96,8 @@ $expectedStageFiles = @(
   'docs\MICROSOFT-STORE-RELEASE.md',
   'docs\PARTNER-CENTER-SUBMISSION-KO.md',
   'docs\AI-ASSISTED-DEVELOPMENT.md',
+  'docs\SEMANTIC-ICON-LIBRARY.md',
+  'docs\SEMANTIC-ICON-GALLERY.html',
   'README.md',
   'PUBLIC-RELEASE-REVIEW.md',
   'SECURITY.md',
@@ -92,7 +105,7 @@ $expectedStageFiles = @(
   'LICENSE',
   'THIRD-PARTY-NOTICES.md',
   'CHANGELOG.md'
-) + $expectedNodeRuntimeFiles |
+) + $expectedSemanticIconFiles + $expectedNodeRuntimeFiles |
   Sort-Object
 
 $actualStageFiles = @(
@@ -115,6 +128,7 @@ $parserResults = @(
       (Join-Path $ProjectRoot 'scripts\Start-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Install-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidget.ps1'),
+      (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetSemanticIcons.ps1'),
       (Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetMsix.ps1'),
       $PSCommandPath
@@ -175,6 +189,8 @@ $sourceStageMappings = @(
   [pscustomobject]@{ source='docs\MICROSOFT-STORE-RELEASE.md'; stage='docs\MICROSOFT-STORE-RELEASE.md' },
   [pscustomobject]@{ source='docs\PARTNER-CENTER-SUBMISSION-KO.md'; stage='docs\PARTNER-CENTER-SUBMISSION-KO.md' },
   [pscustomobject]@{ source='docs\AI-ASSISTED-DEVELOPMENT.md'; stage='docs\AI-ASSISTED-DEVELOPMENT.md' },
+  [pscustomobject]@{ source='docs\SEMANTIC-ICON-LIBRARY.md'; stage='docs\SEMANTIC-ICON-LIBRARY.md' },
+  [pscustomobject]@{ source='docs\SEMANTIC-ICON-GALLERY.html'; stage='docs\SEMANTIC-ICON-GALLERY.html' },
   [pscustomobject]@{ source='README.md'; stage='README.md' },
   [pscustomobject]@{ source='PUBLIC-RELEASE-REVIEW.md'; stage='PUBLIC-RELEASE-REVIEW.md' },
   [pscustomobject]@{ source='SECURITY.md'; stage='SECURITY.md' },
@@ -182,6 +198,10 @@ $sourceStageMappings = @(
   [pscustomobject]@{ source='LICENSE'; stage='LICENSE' },
   [pscustomobject]@{ source='THIRD-PARTY-NOTICES.md'; stage='THIRD-PARTY-NOTICES.md' },
   [pscustomobject]@{ source='CHANGELOG.md'; stage='CHANGELOG.md' }
+) + @(
+  foreach ($assetPath in $expectedSemanticIconFiles) {
+    [pscustomobject]@{ source=$assetPath; stage=$assetPath }
+  }
 )
 $sourceStageMismatches = @(
   foreach ($mapping in $sourceStageMappings) {
