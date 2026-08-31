@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.0',
+  [string]$Version = '0.1.1',
   [string]$OutputRoot,
   [string]$CertificateThumbprint,
   [string]$TimestampUrl,
@@ -310,6 +310,8 @@ $semanticIconAssetNames = @(
 $stageFiles = @(
   [pscustomobject]@{ Source = $hostExecutable; Destination = (Join-Path $stageRoot 'WorkspaceWidget.exe') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\WorkspaceWidget.ps1'); Destination = (Join-Path $stageRoot 'app\WorkspaceWidget.ps1') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\AxStoreLifecycle.psm1'); Destination = (Join-Path $stageRoot 'app\AxStoreLifecycle.psm1') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\ax-store-lifecycle-broker.js'); Destination = (Join-Path $stageRoot 'app\ax-store-lifecycle-broker.js') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\public-default-state.json'); Destination = (Join-Path $stageRoot 'app\default-state.json') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'assets\workspace-widget.ico'); Destination = (Join-Path $stageRoot 'assets\workspace-widget.ico') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'assets\workspace-widget-logo.png'); Destination = (Join-Path $stageRoot 'assets\workspace-widget-logo.png') },
@@ -323,6 +325,7 @@ $stageFiles = @(
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\AI-ASSISTED-DEVELOPMENT.md'); Destination = (Join-Path $stageRoot 'docs\AI-ASSISTED-DEVELOPMENT.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\SEMANTIC-ICON-LIBRARY.md'); Destination = (Join-Path $stageRoot 'docs\SEMANTIC-ICON-LIBRARY.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\SEMANTIC-ICON-GALLERY.html'); Destination = (Join-Path $stageRoot 'docs\SEMANTIC-ICON-GALLERY.html') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\AX-STORE-OWNED-LIFECYCLE.md'); Destination = (Join-Path $stageRoot 'docs\AX-STORE-OWNED-LIFECYCLE.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'README.md'); Destination = (Join-Path $stageRoot 'README.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'PUBLIC-RELEASE-REVIEW.md'); Destination = (Join-Path $stageRoot 'PUBLIC-RELEASE-REVIEW.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'SECURITY.md'); Destination = (Join-Path $stageRoot 'SECURITY.md') },

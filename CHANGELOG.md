@@ -3,12 +3,16 @@
 All notable changes to Workspace Widget are documented in this file.
 
 The project follows semantic versioning for release artifacts. The current
-0.1.0 build is a development preview and has not passed Microsoft Store
+0.1.1 build is a development preview and has not passed Microsoft Store
 certification.
 
 ## Unreleased
 
 ### Added
+
+- AX Store on-demand lifecycle ownership receipts, capability-authenticated
+  named-pipe control, restart recovery, and a reason-and-acknowledgement stop
+  dialog that closes the control/runtime servers gracefully.
 
 - Eight original MIT-licensed semantic line icons, a keyboard-readable built-in
   icon selector, fail-closed asset validation, and a responsive review gallery.
@@ -70,6 +74,11 @@ certification.
   normal `youtu.be` share links.
 
 ### Security
+
+- AX Store stop now fails closed unless the signed receipt, protected runtime
+  directory, PID creation time, command line, executable and source hashes,
+  exact health contracts, and both port owners all match. Generic force-stop is
+  explicitly denied for the AX Store card.
 
 - Installed packages now ignore environment and `PATH` Node overrides and use
   only their package-local pinned runtime.

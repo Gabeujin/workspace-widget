@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.0',
+  [string]$Version = '0.1.1',
   [string]$TaskName = 'Workspace Service Widget',
   [string]$TaskPath = '\',
   [string]$SessionId = 'manual',

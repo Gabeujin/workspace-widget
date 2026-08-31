@@ -88,6 +88,16 @@ boundary. An offline restart never kills a process merely because it owns the
 configured port. If the current widget instance still owns a live process tree,
 it requires explicit confirmation before force-stopping that tree.
 
+AX Store is a stricter exception to the generic local-server path. The Widget
+may stop it only after verifying an ACL-protected, capability-signed ownership
+receipt against the exact broker PID and creation time, executable and command
+line, broker/launcher/runtime-contract hashes, both listener owners, and both
+health contracts. The request travels over a capability-authenticated named
+pipe, requires a reason and explicit impact acknowledgement, and invokes AX
+Store's graceful shutdown export. Missing, stale, tampered, externally started,
+PID-reused, or partially stopped instances fail closed; no `taskkill` fallback
+is permitted. PostgreSQL and AX Runtime Agent targets remain out of scope.
+
 The build validates the pinned Node archive before extraction. A previously
 extracted dependency cache is reused only after every cached path, size, and
 SHA-256 is compared directly with the entries in that already checksum-pinned

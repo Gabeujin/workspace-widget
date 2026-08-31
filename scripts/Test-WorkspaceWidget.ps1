@@ -43,6 +43,7 @@ $officialSecurityReview = Join-Path `
   'security\official-security-review.json'
 $iconBuilder = Join-Path $ProjectRoot 'scripts\New-WorkspaceWidgetIcon.ps1'
 $semanticIconTest = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetSemanticIcons.ps1'
+$axStoreLifecycleTest = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetAxStoreLifecycle.ps1'
 $semanticIconManifest = Join-Path $ProjectRoot 'assets\semantic-icons\manifest.json'
 $baseBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'
 $msixBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'
@@ -868,6 +869,11 @@ $checks = [ordered]@{
     $appContent -match 'Stop-TrackedLocalServer -Item \$pendingOpen\.item -ConfirmForce' -and
     $appContent -match 'function Stop-ProcessTree' -and
     $appContent -match 'Unsaved server work may be lost'
+  axStoreOwnedLifecycle = (Test-Path -LiteralPath $axStoreLifecycleTest -PathType Leaf) -and
+    $appContent -match 'function Invoke-AxStoreLifecycleMenuAction' -and
+    $appContent -match "Header = 'Stop AX Store\.\.\.'" -and
+    $appContent -match "Header = 'Running - not Widget-owned'" -and
+    $appContent -match 'Generic force-stop denied for AX Store'
   packagedRuntimeIsolation = $appContent -match '\$packageRuntimeEnforced' -and
     $appContent -match "'PackageLocal'" -and
     $appContent -match "'PackageLocalMissing'" -and

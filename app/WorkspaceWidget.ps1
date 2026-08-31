@@ -36,6 +36,11 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 
 $defaultStatePath = Join-Path $scriptRoot 'default-state.json'
+$axStoreLifecycleModulePath = Join-Path $scriptRoot 'AxStoreLifecycle.psm1'
+$axStoreLifecycleBrokerPath = Join-Path $scriptRoot 'ax-store-lifecycle-broker.js'
+if (Test-Path -LiteralPath $axStoreLifecycleModulePath -PathType Leaf) {
+  Import-Module -Name $axStoreLifecycleModulePath -Force
+}
 $nativeHostPath = if (
   -not [string]::IsNullOrWhiteSpace($env:WORKSPACE_WIDGET_HOST_PATH) -and
   (Test-Path -LiteralPath $env:WORKSPACE_WIDGET_HOST_PATH -PathType Leaf)
@@ -4391,6 +4396,18 @@ function Start-LocalServer {
   if (-not (Test-HasNodeStartup -Item $Item)) {
     throw 'This shortcut does not have a Node start target.'
   }
+  if (Test-AxStoreLifecycleItem -Item $Item) {
+    $result = Start-AxStoreOwnedInstance `
+      -Item $Item `
+      -RuntimeRoot $runtimeRoot `
+      -BundledNodePath $bundledNodePath `
+      -BrokerPath $axStoreLifecycleBrokerPath
+    if (-not [bool]$result.success) {
+      throw ([string]$result.error)
+    }
+    Write-RuntimeLog "AX Store owned lifecycle start result=$($result.state) pid=$($result.pid)"
+    return $true
+  }
   if (
     [string]::IsNullOrWhiteSpace($bundledNodePath) -or
     -not (Test-Path -LiteralPath $bundledNodePath -PathType Leaf)
@@ -4506,6 +4523,11 @@ function Stop-TrackedLocalServer {
     $Item,
     [switch]$ConfirmForce
   )
+
+  if (Test-AxStoreLifecycleItem -Item $Item) {
+    Write-RuntimeLog "Generic force-stop denied for AX Store item '$([string]$Item.id)'."
+    return $false
+  }
 
   $itemId = [string]$Item.id
   if (-not $script:serverProcesses.ContainsKey($itemId)) {
@@ -4638,6 +4660,165 @@ function Update-ServerRecoveryMenuItem {
   $MenuItem.Header = if ($healthKnown) { 'Restart server' } else { 'Check and restart server' }
   $MenuItem.ToolTip = 'Runs the trusted Node start target and waits for the health endpoint.'
   $MenuItem.IsEnabled = $true
+}
+
+function Show-AxStoreStopDialog {
+  param($Item)
+
+  $dialog = [System.Windows.Window]::new()
+  $dialog.Title = 'Stop AX Store safely'
+  $dialog.Width = 430
+  $dialog.Height = 390
+  $dialog.ResizeMode = [System.Windows.ResizeMode]::NoResize
+  $dialog.WindowStartupLocation = [System.Windows.WindowStartupLocation]::CenterOwner
+  $dialog.Owner = $script:window
+  $dialog.ShowInTaskbar = $false
+  $dialog.Background = Convert-ToBrush '#FF09162B'
+  $dialog.Foreground = Convert-ToBrush '#FFF6F9FF'
+  $dialog.FontFamily = [System.Windows.Media.FontFamily]::new('Segoe UI Variable Text, Segoe UI')
+
+  $panel = [System.Windows.Controls.StackPanel]::new()
+  $panel.Margin = [System.Windows.Thickness]::new(28, 24, 28, 24)
+  $dialog.Content = $panel
+  $title = [System.Windows.Controls.TextBlock]::new()
+  $title.Text = 'Stop the Widget-owned AX Store?'
+  $title.FontSize = 20
+  $title.FontWeight = [System.Windows.FontWeights]::SemiBold
+  $panel.Children.Add($title) | Out-Null
+  $impact = [System.Windows.Controls.TextBlock]::new()
+  $impact.Text = "This gracefully closes the AX Store control API (port 4520), runtime API (port 4521), identity session, and database pool. PostgreSQL is not stopped."
+  $impact.TextWrapping = [System.Windows.TextWrapping]::Wrap
+  $impact.Foreground = Convert-ToBrush '#FFC3D0E3'
+  $impact.Margin = [System.Windows.Thickness]::new(0, 12, 0, 18)
+  $panel.Children.Add($impact) | Out-Null
+  $reasonLabel = [System.Windows.Controls.TextBlock]::new()
+  $reasonLabel.Text = 'Reason (required)'
+  $panel.Children.Add($reasonLabel) | Out-Null
+  $reason = [System.Windows.Controls.TextBox]::new()
+  $reason.Margin = [System.Windows.Thickness]::new(0, 6, 0, 14)
+  $reason.MinHeight = 34
+  $reason.Padding = [System.Windows.Thickness]::new(8)
+  $reason.Background = Convert-ToBrush '#FF102441'
+  $reason.Foreground = Convert-ToBrush '#FFFFFFFF'
+  $reason.BorderBrush = Convert-ToBrush '#FF5C8AC6'
+  [System.Windows.Automation.AutomationProperties]::SetName($reason, 'Reason for stopping AX Store')
+  $panel.Children.Add($reason) | Out-Null
+  $acknowledge = [System.Windows.Controls.CheckBox]::new()
+  $acknowledge.Content = 'I understand that local AX Store sessions will be interrupted.'
+  $acknowledge.Foreground = Convert-ToBrush '#FFF6F9FF'
+  $acknowledge.Margin = [System.Windows.Thickness]::new(0, 0, 0, 20)
+  [System.Windows.Automation.AutomationProperties]::SetName($acknowledge, 'Acknowledge AX Store stop impact')
+  $panel.Children.Add($acknowledge) | Out-Null
+  $buttons = [System.Windows.Controls.StackPanel]::new()
+  $buttons.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+  $buttons.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
+  $cancel = [System.Windows.Controls.Button]::new()
+  $cancel.Content = 'Cancel'
+  $cancel.IsCancel = $true
+  $cancel.MinWidth = 92
+  $cancel.Height = 36
+  $cancel.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
+  $cancel.Padding = [System.Windows.Thickness]::new(12, 6, 12, 6)
+  $cancel.Background = Convert-ToBrush '#FF172A47'
+  $cancel.Foreground = Convert-ToBrush '#FFF6F9FF'
+  $cancel.BorderBrush = Convert-ToBrush '#665C8AC6'
+  $cancel.Template = New-ButtonTemplate -HoverBackground '#FF174A78' -PressedBackground '#FF0F355E'
+  $stop = [System.Windows.Controls.Button]::new()
+  $stop.Content = 'Stop AX Store'
+  $stop.IsDefault = $true
+  $stop.MinWidth = 120
+  $stop.Height = 36
+  $stop.Padding = [System.Windows.Thickness]::new(12, 6, 12, 6)
+  $stop.Background = Convert-ToBrush '#FFB42335'
+  $stop.Foreground = Convert-ToBrush '#FFFFFFFF'
+  $stop.BorderBrush = Convert-ToBrush '#FFFF7082'
+  $stop.Template = New-ButtonTemplate -HoverBackground '#FFD12E43' -PressedBackground '#FF901C2C' -HoverBorder '#FFFFFFFF'
+  $stop.IsEnabled = $false
+  $buttons.Children.Add($cancel) | Out-Null
+  $buttons.Children.Add($stop) | Out-Null
+  $panel.Children.Add($buttons) | Out-Null
+  $updateStop = {
+    $stop.IsEnabled = $reason.Text.Trim().Length -ge 3 -and $acknowledge.IsChecked -eq $true
+  }
+  $reason.Add_TextChanged($updateStop)
+  $acknowledge.Add_Click($updateStop)
+  $cancel.Add_Click({ $dialog.DialogResult = $false; $dialog.Close() })
+  $stop.Add_Click({ $dialog.DialogResult = $true; $dialog.Close() })
+  $dialog.Add_ContentRendered({ $reason.Focus() | Out-Null })
+  $confirmed = $dialog.ShowDialog()
+  if ($confirmed -ne $true) { return $null }
+  return [pscustomobject]@{ reason=$reason.Text.Trim(); acknowledgedImpact=$true }
+}
+
+function Get-AxStoreMenuStatus {
+  param($Item)
+  try {
+    return Get-AxStoreLifecycleStatus -Item $Item -RuntimeRoot $runtimeRoot -SkipHealth
+  } catch {
+    Write-RuntimeLog "AX Store lifecycle status failed. $($_.Exception.Message)"
+    return [pscustomobject]@{state='Invalid';owned=$false;stoppable=$false;reason='Ownership evidence could not be verified.'}
+  }
+}
+
+function Update-AxStoreLifecycleMenuItem {
+  param($MenuItem)
+  if ($null -eq $MenuItem -or $null -eq $MenuItem.Tag) { return }
+  $status = Get-AxStoreMenuStatus -Item $MenuItem.Tag
+  switch ([string]$status.state) {
+    'OwnedOnline' {
+      $MenuItem.Header = 'Stop AX Store...'
+      $MenuItem.ToolTip = 'Gracefully stops only the verified Widget-owned AX Store instance.'
+      $MenuItem.IsEnabled = $true
+    }
+    'Offline' {
+      $MenuItem.Header = 'Start AX Store'
+      $MenuItem.ToolTip = 'Starts AX Store with the bundled Node runtime and records verifiable ownership.'
+      $MenuItem.IsEnabled = $true
+    }
+    'RunningUnowned' {
+      $MenuItem.Header = 'Running - not Widget-owned'
+      $MenuItem.ToolTip = 'Stop is disabled because this process was not started by the trusted Widget lifecycle broker.'
+      $MenuItem.IsEnabled = $false
+    }
+    default {
+      $MenuItem.Header = 'AX Store lifecycle unavailable'
+      $MenuItem.ToolTip = [string]$status.reason
+      $MenuItem.IsEnabled = $false
+    }
+  }
+}
+
+function Invoke-AxStoreLifecycleMenuAction {
+  param($Item)
+  if ($script:axStoreLifecycleBusy) { return }
+  $status = Get-AxStoreMenuStatus -Item $Item
+  if ($status.state -eq 'Offline') {
+    Queue-NodeStart -Item $Item -OpenWhenHealthy $false -RestartTrackedProcess $false
+    return
+  }
+  if ($status.state -ne 'OwnedOnline') {
+    Show-Toast -Message 'AX Store is running but is not owned by this Widget'
+    return
+  }
+  $request = Show-AxStoreStopDialog -Item $Item
+  if ($null -eq $request) { return }
+  $script:axStoreLifecycleBusy = $true
+  Show-Toast -Message 'Gracefully stopping AX Store...'
+  try {
+    $result = Stop-AxStoreOwnedInstance -Item $Item -RuntimeRoot $runtimeRoot -Reason $request.reason -AcknowledgedImpact
+    if ([bool]$result.success) {
+      $script:healthStates[[string]$Item.id] = $false
+      Show-Toast -Message 'AX Store stopped safely; both listeners are closed'
+      Write-RuntimeLog "AX Store graceful stop completed. receipt='$($result.receiptPath)'"
+      Start-HealthCheck
+    } else {
+      Show-Toast -Message 'AX Store stop was not verified; no force-stop was attempted'
+      Write-RuntimeLog "AX Store graceful stop not verified. state=$($result.state) error=$($result.error)"
+    }
+  } catch {
+    Show-Toast -Message 'AX Store stop was denied or failed; no force-stop was attempted'
+    Write-RuntimeLog "AX Store graceful stop failed closed. $($_.Exception.Message)"
+  } finally { $script:axStoreLifecycleBusy = $false }
 }
 
 function Launch-Item {
@@ -7167,7 +7348,15 @@ function New-LauncherCard {
   </Border>
 </ControlTemplate>
 '@)
-  if ((Test-HasNodeStartup -Item $Item) -and (Test-HasHealthCheck -Item $Item)) {
+  if (Test-AxStoreLifecycleItem -Item $Item) {
+    $axLifecycle = New-ContextMenuItem -Header 'AX Store lifecycle'
+    $axLifecycle.Tag = $Item
+    Update-AxStoreLifecycleMenuItem -MenuItem $axLifecycle
+    $axLifecycle.Add_Click({ param($sender,$eventArgs) Invoke-AxStoreLifecycleMenuAction -Item $sender.Tag })
+    $context.Items.Add($axLifecycle) | Out-Null
+    $context.Tag = $axLifecycle
+    $context.Add_Opened({ param($sender,$eventArgs) Update-AxStoreLifecycleMenuItem -MenuItem $sender.Tag })
+  } elseif ((Test-HasNodeStartup -Item $Item) -and (Test-HasHealthCheck -Item $Item)) {
     $serverRecovery = New-ContextMenuItem -Header 'Check and restart server'
     $serverRecovery.Tag = $Item
     Update-ServerRecoveryMenuItem -MenuItem $serverRecovery
@@ -7778,6 +7967,7 @@ $script:autostartRequestedAction = $null
 $script:autostartStartedAt = $null
 $script:updatingAutostartCheck = $false
 $script:autostartPollTimer = $null
+$script:axStoreLifecycleBusy = $false
 $script:themePalette = $null
 $script:backgroundGifTimer = $null
 $script:backgroundGifFrames = @()
