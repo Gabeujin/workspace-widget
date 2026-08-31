@@ -106,7 +106,12 @@ AX Store uses a separate fail-closed lifecycle path. Right-click its card to
 start it with the bundled Node runtime or to stop a verified Widget-owned
 instance. Stop requires a reason and explicit impact acknowledgement, closes
 the control and runtime APIs through AX Store's graceful shutdown contract,
-and never force-kills a process. See
+and never force-kills a process. The local migration installer requires an
+explicit canonical `-AxStoreLauncherPath`; it signs the launcher and runtime
+contract identity. Before launch, Windows PowerShell 5.1 applies and independently
+re-reads a named-pipe DACL restricted to the current user, SYSTEM, and
+Administrators. Missing registration or DACL evidence disables lifecycle actions.
+See
 [AX Store owned lifecycle](docs/AX-STORE-OWNED-LIFECYCLE.md).
 
 Store and installed builds use only their checksum-pinned package-local Node.js

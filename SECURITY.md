@@ -92,10 +92,15 @@ AX Store is a stricter exception to the generic local-server path. The Widget
 may stop it only after verifying an ACL-protected, capability-signed ownership
 receipt against the exact broker PID and creation time, executable and command
 line, broker/launcher/runtime-contract hashes, both listener owners, and both
-health contracts. The request travels over a capability-authenticated named
+health contracts. Installer-issued signed registration pins the canonical
+launcher and runtime contract independently of user-editable shortcut state.
+The broker does not launch AX Store until Windows PowerShell 5.1 has verified
+the pipe server PID, applied a protected DACL containing exactly the current
+user, SYSTEM, and Administrators, and confirmed the same descriptor through a
+second connection. The request travels over that capability-authenticated named
 pipe, requires a reason and explicit impact acknowledgement, and invokes AX
 Store's graceful shutdown export. Missing, stale, tampered, externally started,
-PID-reused, or partially stopped instances fail closed; no `taskkill` fallback
+PID-reused, DACL-mismatched, or partially stopped instances fail closed; no `taskkill` fallback
 is permitted. PostgreSQL and AX Runtime Agent targets remain out of scope.
 
 The build validates the pinned Node archive before extraction. A previously

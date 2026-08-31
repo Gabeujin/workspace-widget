@@ -68,6 +68,38 @@ async function waitForActivation(bootstrap, secret, timeoutMs = 10_000) {
   throw new Error('Lifecycle activation did not arrive in time.');
 }
 
+function sameStrings(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && [...left].sort().every((value, index) => value === [...right].sort()[index]);
+}
+
+async function waitForPipeAclAttestation(bootstrap, secret, challengeNonce, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(bootstrap.pipeAclPath)) {
+      const attestation = readSigned(bootstrap.pipeAclPath, secret);
+      if (
+        attestation.schema !== BROKER_SCHEMA
+        || attestation.instanceId !== bootstrap.instanceId
+        || attestation.pipeName !== bootstrap.pipeName
+        || Number(attestation.brokerPid) !== process.pid
+        || attestation.challengeNonce !== challengeNonce
+        || attestation.pipeAclPolicyVersion !== bootstrap.pipeAclPolicyVersion
+        || !sameStrings(attestation.pipeAclAllowedSids, bootstrap.pipeAclAllowedSids)
+        || !/^[0-9a-f]{64}$/.test(String(attestation.pipeAclDigest || ''))
+        || !Number.isFinite(Date.parse(attestation.verifiedAt))
+      ) {
+        throw new Error('Named pipe DACL attestation failed its exact signed contract.');
+      }
+      return attestation;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('Named pipe DACL attestation did not arrive before launch.');
+}
+
 function parseArguments(argv) {
   const index = argv.indexOf('--bootstrap');
   if (index < 0 || !argv[index + 1]) throw new Error('--bootstrap is required.');
@@ -86,18 +118,38 @@ async function runBroker({ bootstrapPath }, dependencies = {}) {
   const contractBytes = fs.readFileSync(bootstrap.contractPath);
   const contractHash = sha256(contractBytes);
   if (
-    activation.brokerSha256 !== brokerHash
+    activation.schema !== BROKER_SCHEMA
+    || activation.registrationDigest !== bootstrap.registrationDigest
+    || activation.pipeAclPolicyVersion !== bootstrap.pipeAclPolicyVersion
+    || !sameStrings(activation.pipeAclAllowedSids, bootstrap.pipeAclAllowedSids)
+    || !/^[0-9a-f]{64}$/.test(String(bootstrap.registrationDigest || ''))
+    || activation.brokerSha256 !== brokerHash
     || activation.launcherSha256 !== launcherHash
     || activation.contractSha256 !== contractHash
   ) {
     throw new Error('Activated lifecycle artifacts changed before startup.');
   }
 
-  const launcher = dependencies.launcher || require(bootstrap.launcherPath);
+  let launcher = null;
   let gracefulShutdown = null;
   const contract = JSON.parse(contractBytes.toString('utf8'));
   const controlHealthUrl = `http://127.0.0.1:4520${contract.control.healthPathBase}/${contract.control.apiVersion}/${contractHash}`;
   const runtimeHealthUrl = `http://127.0.0.1:4521${contract.runtime.healthPath}`;
+  const healthContractDigest = sha256(stable({
+    schemaVersion: contract.schemaVersion,
+    databaseSchemaVersion: contract.database.schemaVersion,
+    controlApiVersion: contract.control.apiVersion,
+    runtimeApiVersion: contract.runtime.apiVersion,
+    controlHealthUrl,
+    runtimeHealthUrl,
+  }));
+  if (
+    controlHealthUrl !== bootstrap.controlHealthUrl
+    || runtimeHealthUrl !== bootstrap.runtimeHealthUrl
+    || healthContractDigest !== bootstrap.healthContractDigest
+  ) {
+    throw new Error('Bootstrap health contract does not match the registered runtime contract.');
+  }
   let ownershipDigest = null;
   let lifecycleReady = false;
   const completed = new Map();
@@ -111,7 +163,10 @@ async function runBroker({ bootstrapPath }, dependencies = {}) {
     const handleRequest = async () => {
       if (handling) return;
       requestText = requestText.trim();
-      if (!requestText) return;
+      if (!requestText) {
+        if (socket.readableEnded) socket.end();
+        return;
+      }
       handling = true;
       let responsePayload;
       try {
@@ -130,6 +185,7 @@ async function runBroker({ bootstrapPath }, dependencies = {}) {
           request.schema !== BROKER_SCHEMA
           || request.instanceId !== bootstrap.instanceId
           || request.ownershipDigest !== ownershipDigest
+          || request.registrationDigest !== bootstrap.registrationDigest
           || request.action !== 'STOP'
           || request.acknowledgedImpact !== true
           || typeof request.reason !== 'string'
@@ -162,7 +218,7 @@ async function runBroker({ bootstrapPath }, dependencies = {}) {
             shutdownError = error;
           }
           let finalHealth = await launcher.inspectRuntime();
-          const deadline = Date.now() + 12_000;
+          const deadline = Date.now() + (dependencies.shutdownWaitMs ?? 12_000);
           while (finalHealth.reachableCount > 0 && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 200));
             finalHealth = await launcher.inspectRuntime();
@@ -207,6 +263,24 @@ async function runBroker({ bootstrapPath }, dependencies = {}) {
     server.listen(bootstrap.pipeName, resolve);
   });
   try {
+    const challengeNonce = crypto.randomBytes(32).toString('hex');
+    writeExclusive(bootstrap.pipeBoundPath, signed(secret, {
+      schema: BROKER_SCHEMA,
+      instanceId: bootstrap.instanceId,
+      pipeName: bootstrap.pipeName,
+      brokerPid: process.pid,
+      challengeNonce,
+      pipeAclPolicyVersion: bootstrap.pipeAclPolicyVersion,
+      pipeAclAllowedSids: bootstrap.pipeAclAllowedSids,
+      boundAt: new Date().toISOString(),
+    }));
+    const pipeAcl = await waitForPipeAclAttestation(
+      bootstrap,
+      secret,
+      challengeNonce,
+      dependencies.pipeAclTimeoutMs || 10_000,
+    );
+    launcher = dependencies.launcher || require(bootstrap.launcherPath);
     const launchResult = await launcher.launchFromWorkspaceWidget({
       shutdownRegistrar(instance) {
         gracefulShutdown = launcher.registerShutdownHandlers(instance);
@@ -224,6 +298,7 @@ async function runBroker({ bootstrapPath }, dependencies = {}) {
       owner: 'Workspace Widget AX Store lifecycle broker',
       pid: process.pid,
       processCreationTimeUtc: activation.processCreationTimeUtc,
+      processCreationTimeFileTimeUtc: activation.processCreationTimeFileTimeUtc,
       executablePath: activation.executablePath,
       executableSha256: activation.executableSha256,
       commandLineSha256: activation.commandLineSha256,
@@ -233,9 +308,15 @@ async function runBroker({ bootstrapPath }, dependencies = {}) {
       launcherSha256: launcherHash,
       contractPath: bootstrap.contractPath,
       contractSha256: contractHash,
+      registrationDigest: bootstrap.registrationDigest,
       controlHealthUrl,
       runtimeHealthUrl,
+      healthContractDigest,
       pipeName: bootstrap.pipeName,
+      pipeAclPolicyVersion: pipeAcl.pipeAclPolicyVersion,
+      pipeAclDigest: pipeAcl.pipeAclDigest,
+      pipeAclVerifiedAt: pipeAcl.verifiedAt,
+      pipeAclChallengeDigest: sha256(challengeNonce),
       capabilitySha256: sha256(secret),
       establishedAt: new Date().toISOString(),
     };
@@ -263,4 +344,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { BROKER_SCHEMA, hmac, parseArguments, runBroker, sha256, signed, stable };
+module.exports = { BROKER_SCHEMA, hmac, parseArguments, runBroker, sha256, signed, stable, waitForPipeAclAttestation };

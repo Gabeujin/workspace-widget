@@ -13,6 +13,9 @@ certification.
 - AX Store on-demand lifecycle ownership receipts, capability-authenticated
   named-pipe control, restart recovery, and a reason-and-acknowledgement stop
   dialog that closes the control/runtime servers gracefully.
+- Installer-issued signed AX Store launcher/runtime-contract registration and
+  a pre-launch, exact three-principal named-pipe DACL challenge with independent
+  Windows PowerShell 5.1 readback. Missing or changed evidence fails closed.
 
 - Eight original MIT-licensed semantic line icons, a keyboard-readable built-in
   icon selector, fail-closed asset validation, and a responsive review gallery.
