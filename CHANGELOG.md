@@ -3,24 +3,12 @@
 All notable changes to Workspace Widget are documented in this file.
 
 The project follows semantic versioning for release artifacts. The current
-0.1.2 build is a development preview and has not passed Microsoft Store
+0.1.3 build is a development preview and has not passed Microsoft Store
 certification.
 
 ## Unreleased
 
 ### Added
-
-- A signed, guarded one-time transition for the exact pre-broker AX Store
-  process, with dual acknowledgement, PID/creation/SID/command/path/hash/port/
-  health/contract continuity checks, exclusive request and completion receipts,
-  replay and concurrency rejection, and fail-closed partial-result handling.
-
-- AX Store on-demand lifecycle ownership receipts, capability-authenticated
-  named-pipe control, restart recovery, and a reason-and-acknowledgement stop
-  dialog that closes the control/runtime servers gracefully.
-- Installer-issued signed AX Store launcher/runtime-contract registration and
-  a pre-launch, exact three-principal named-pipe DACL challenge with independent
-  Windows PowerShell 5.1 readback. Missing or changed evidence fails closed.
 
 - Eight original MIT-licensed semantic line icons, a keyboard-readable built-in
   icon selector, fail-closed asset validation, and a responsive review gallery.
@@ -51,6 +39,11 @@ certification.
 
 ### Changed
 
+- Removed product-specific server lifecycle branches from the active runtime,
+  installer, tests, and release package. Every server shortcut now uses the
+  same generic startup target, arguments, working directory, and health URL.
+- Preserved prior product-specific source and receipts as inactive historical
+  evidence; they are not loaded, installed, packaged, or executed.
 - Official public distribution now targets Microsoft Store MSIX; Inno Setup
   remains local development and migration tooling only.
 - Shortcut launches derive an explicit working directory so packaged child
@@ -82,15 +75,6 @@ certification.
   normal `youtu.be` share links.
 
 ### Security
-
-- AX Store registration schema v2 pins the server entry point, bundled and
-  legacy Node.js runtimes, current-user SID, and their SHA-256 digests in
-  addition to the launcher and runtime contract.
-
-- AX Store stop now fails closed unless the signed receipt, protected runtime
-  directory, PID creation time, command line, executable and source hashes,
-  exact health contracts, and both port owners all match. Generic force-stop is
-  explicitly denied for the AX Store card.
 
 - Installed packages now ignore environment and `PATH` Node overrides and use
   only their package-local pinned runtime.

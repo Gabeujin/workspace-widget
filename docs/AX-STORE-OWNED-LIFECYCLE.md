@@ -1,6 +1,11 @@
 # AX Store owned lifecycle
 
-Workspace Widget may start and gracefully stop the local AX Store control and runtime servers, but only when the exact running instance was started by the packaged Widget lifecycle broker. Release 0.1.2 also provides one narrowly scoped migration path for the pre-broker AX Store instance that can remain after an upgrade. It does not adopt that process as Widget-owned.
+> Historical repository evidence only. This design is not loaded, installed,
+> packaged, or supported by Workspace Widget 0.1.3 and later. Workspace Widget
+> now uses one product-agnostic server shortcut contract and has no dependency
+> on this product or its lifecycle protocol.
+
+Workspace Widget 0.1.2 could start and gracefully stop the local AX Store control and runtime servers, but only when the exact running instance was started by the packaged Widget lifecycle broker. It also provided one narrowly scoped migration path for the pre-broker AX Store instance that could remain after an upgrade. It did not adopt that process as Widget-owned.
 
 ## Trust boundary
 

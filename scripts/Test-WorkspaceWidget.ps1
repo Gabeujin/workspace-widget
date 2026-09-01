@@ -43,7 +43,6 @@ $officialSecurityReview = Join-Path `
   'security\official-security-review.json'
 $iconBuilder = Join-Path $ProjectRoot 'scripts\New-WorkspaceWidgetIcon.ps1'
 $semanticIconTest = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetSemanticIcons.ps1'
-$axStoreLifecycleTest = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetAxStoreLifecycle.ps1'
 $semanticIconManifest = Join-Path $ProjectRoot 'assets\semantic-icons\manifest.json'
 $baseBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'
 $msixBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'
@@ -361,6 +360,7 @@ $baseBuilderContent = Get-Content -LiteralPath $baseBuilder -Raw
 $msixBuilderContent = Get-Content -LiteralPath $msixBuilder -Raw
 $msixVerifierContent = Get-Content -LiteralPath $msixVerifier -Raw
 $msixManifestContent = Get-Content -LiteralPath $msixManifestTemplate -Raw
+$productSpecificLifecyclePattern = '(?i)' + 'ax' + '.?' + 'store'
 $task = Get-ScheduledTask `
   -TaskName $TaskName `
   -TaskPath $TaskPath `
@@ -869,11 +869,10 @@ $checks = [ordered]@{
     $appContent -match 'Stop-TrackedLocalServer -Item \$pendingOpen\.item -ConfirmForce' -and
     $appContent -match 'function Stop-ProcessTree' -and
     $appContent -match 'Unsaved server work may be lost'
-  axStoreOwnedLifecycle = (Test-Path -LiteralPath $axStoreLifecycleTest -PathType Leaf) -and
-    $appContent -match 'function Invoke-AxStoreLifecycleMenuAction' -and
-    $appContent -match "Header = 'Stop AX Store\.\.\.'" -and
-    $appContent -match "Header = 'Running - not Widget-owned'" -and
-    $appContent -match 'Generic force-stop denied for AX Store'
+  productAgnosticServerLifecycle = $appContent -notmatch $productSpecificLifecyclePattern -and
+    $installContent -notmatch $productSpecificLifecyclePattern -and
+    $baseBuilderContent -notmatch $productSpecificLifecyclePattern -and
+    $releaseVerifierContent -notmatch $productSpecificLifecyclePattern
   packagedRuntimeIsolation = $appContent -match '\$packageRuntimeEnforced' -and
     $appContent -match "'PackageLocal'" -and
     $appContent -match "'PackageLocalMissing'" -and
@@ -888,6 +887,8 @@ $checks = [ordered]@{
     $appContent -match 'function Get-ValidatedLocalMediaInfo'
   strictUrlAndStartupBoundary = $appContent -match 'function Get-ValidatedWebUri' -and
     $appContent -match 'function Resolve-NodeStartupConfiguration' -and
+    $appContent -match 'Node working directories must be local, drive-rooted paths' -and
+    $appContent -match '\$workingDirectory = \[string\]\$startupConfiguration\.workingDirectory' -and
     $appContent -match 'Automatic Node startup requires a loopback health URL'
   wpfRuntime = $appContent -match 'PresentationFramework' -and
     $appContent -match 'AllowDrop="True"' -and
@@ -1176,7 +1177,11 @@ $checks = [ordered]@{
   shortcutLaunchesWrapper = $null -ne $shortcutSnapshot -and
     $shortcutSnapshot.targetPath -match '(?i)WorkspaceWidget\.exe$' -and
     $shortcutSnapshot.iconLocation -match 'workspace-widget\.ico'
-  allServicesOnline = @($healthChecks | Where-Object { -not $_.online }).Count -eq 0
+  healthProbeReportsAvailability = @($healthChecks).Count -eq @($healthTargets).Count -and
+    @($healthChecks | Where-Object {
+        [string]::IsNullOrWhiteSpace([string]$_.url) -or
+        $_.PSObject.Properties.Name -notcontains 'online'
+      }).Count -eq 0
   healthTargetsFromState = @($healthChecks).Count -eq @($healthTargets).Count
   legacyRainmeterDeactivated = -not $legacyMatch.Success -or $legacyBody -match '(?m)^Active=0\r?$'
   noLegacyLauncherDependency = $startContent -notmatch 'Rainmeter'

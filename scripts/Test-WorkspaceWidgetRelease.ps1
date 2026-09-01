@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.2',
+  [string]$Version = '0.1.3',
   [string]$OutputRoot,
   [switch]$RequireInstaller,
   [switch]$RequireSigned,
@@ -81,8 +81,6 @@ $expectedStageFiles = @(
   'WorkspaceWidget.exe',
   'WebView2Loader.dll',
   'app\WorkspaceWidget.ps1',
-  'app\AxStoreLifecycle.psm1',
-  'app\ax-store-lifecycle-broker.js',
   'app\default-state.json',
   'assets\workspace-widget.ico',
   'assets\workspace-widget-logo.png',
@@ -100,7 +98,6 @@ $expectedStageFiles = @(
   'docs\AI-ASSISTED-DEVELOPMENT.md',
   'docs\SEMANTIC-ICON-LIBRARY.md',
   'docs\SEMANTIC-ICON-GALLERY.html',
-  'docs\AX-STORE-OWNED-LIFECYCLE.md',
   'README.md',
   'PUBLIC-RELEASE-REVIEW.md',
   'SECURITY.md',
@@ -124,7 +121,6 @@ $unexpectedStageFiles = @($actualStageFiles | Where-Object { $_ -notin $expected
 $parserResults = @(
   foreach ($file in @(
       (Join-Path $ProjectRoot 'app\WorkspaceWidget.ps1'),
-      (Join-Path $ProjectRoot 'app\AxStoreLifecycle.psm1'),
       (Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Restore-WorkspaceWidgetDependencies.ps1'),
       (Join-Path $ProjectRoot 'scripts\Restore-WorkspaceWidgetNodeRuntime.ps1'),
@@ -133,7 +129,6 @@ $parserResults = @(
       (Join-Path $ProjectRoot 'scripts\Install-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetSemanticIcons.ps1'),
-      (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetAxStoreLifecycle.ps1'),
       (Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetMsix.ps1'),
       $PSCommandPath
@@ -183,8 +178,6 @@ $manifestCoverage = (
 
 $sourceStageMappings = @(
   [pscustomobject]@{ source='app\WorkspaceWidget.ps1'; stage='app\WorkspaceWidget.ps1' },
-  [pscustomobject]@{ source='app\AxStoreLifecycle.psm1'; stage='app\AxStoreLifecycle.psm1' },
-  [pscustomobject]@{ source='app\ax-store-lifecycle-broker.js'; stage='app\ax-store-lifecycle-broker.js' },
   [pscustomobject]@{ source='app\public-default-state.json'; stage='app\default-state.json' },
   [pscustomobject]@{ source='assets\workspace-widget.ico'; stage='assets\workspace-widget.ico' },
   [pscustomobject]@{ source='assets\workspace-widget-logo.png'; stage='assets\workspace-widget-logo.png' },
@@ -198,7 +191,6 @@ $sourceStageMappings = @(
   [pscustomobject]@{ source='docs\AI-ASSISTED-DEVELOPMENT.md'; stage='docs\AI-ASSISTED-DEVELOPMENT.md' },
   [pscustomobject]@{ source='docs\SEMANTIC-ICON-LIBRARY.md'; stage='docs\SEMANTIC-ICON-LIBRARY.md' },
   [pscustomobject]@{ source='docs\SEMANTIC-ICON-GALLERY.html'; stage='docs\SEMANTIC-ICON-GALLERY.html' },
-  [pscustomobject]@{ source='docs\AX-STORE-OWNED-LIFECYCLE.md'; stage='docs\AX-STORE-OWNED-LIFECYCLE.md' },
   [pscustomobject]@{ source='README.md'; stage='README.md' },
   [pscustomobject]@{ source='PUBLIC-RELEASE-REVIEW.md'; stage='PUBLIC-RELEASE-REVIEW.md' },
   [pscustomobject]@{ source='SECURITY.md'; stage='SECURITY.md' },
@@ -354,6 +346,8 @@ $webView2Dependency = @(
   $manifest.dependencies |
     Where-Object { [string]$_.name -eq 'Microsoft.Web.WebView2' }
 ) | Select-Object -First 1
+$stageAppContent = Get-Content -LiteralPath $stageAppPath -Raw
+$productSpecificLifecyclePattern = '(?i)' + 'ax' + '.?' + 'store'
 
 $checks = [ordered]@{
   manifestIdentity = (
@@ -365,6 +359,7 @@ $checks = [ordered]@{
     $missingStageFiles.Count -eq 0 -and
     $unexpectedStageFiles.Count -eq 0
   )
+  productAgnosticServerLifecycle = $stageAppContent -notmatch $productSpecificLifecyclePattern
   powershellParsers = @($parserResults | Where-Object { -not $_.valid }).Count -eq 0
   cleanPublicState = (
     [int]$stageState.schemaVersion -eq 4 -and

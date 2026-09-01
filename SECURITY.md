@@ -88,40 +88,13 @@ boundary. An offline restart never kills a process merely because it owns the
 configured port. If the current widget instance still owns a live process tree,
 it requires explicit confirmation before force-stopping that tree.
 
-AX Store is a stricter exception to the generic local-server path. The Widget
-may stop it only after verifying an ACL-protected, capability-signed ownership
-receipt against the exact broker PID and creation time, executable and command
-line, broker/launcher/runtime-contract hashes, both listener owners, and both
-health contracts. Installer-issued signed registration pins the canonical
-launcher and runtime contract independently of user-editable shortcut state.
-The broker does not launch AX Store until Windows PowerShell 5.1 has verified
-the pipe server PID, applied a protected DACL containing exactly the current
-user, SYSTEM, and Administrators, and confirmed the same descriptor through a
-second connection. The request travels over that capability-authenticated named
-pipe, requires a reason and explicit impact acknowledgement, and invokes AX
-Store's graceful shutdown export. Missing, stale, tampered, externally started,
-PID-reused, DACL-mismatched, or partially stopped instances fail closed; no `taskkill` fallback
-is permitted. PostgreSQL and AX Runtime Agent targets remain out of scope.
-
-Release 0.1.2 adds an exceptional one-time migration action for the exact
-pre-broker AX Store process. It is not ownership adoption and is unavailable to
-ordinary local servers. Signed registration schema v2 pins the canonical
-launcher, server, contract, bundled and legacy Node.js binaries, hashes, health
-URLs, and current-user SID. The live verifier additionally requires the same
-exclusive PID on both reserved ports, exact command line and creation FILETIME,
-matching service identities, and the exact contract-body digest. After two
-explicit acknowledgements, the Widget atomically creates a deterministic signed
-claim for that registered legacy identity. Because the pre-broker process has
-no authenticated graceful IPC, no unverified window or console signal is sent.
-The Widget opens a native process handle, verifies its creation FILETIME, image,
-hash, and token SID, re-verifies the complete process/port/command identity, and
-terminates only through that same handle. The fixed claim is cross-process and
-cross-session single-use evidence. It never selects a process by name or port
-and never retries against a replacement PID. Both ports and the process
-must be absent before a signed `STOPPED_FOR_MIGRATION` receipt is success;
-exceptions and partial or unknown outcomes fail closed and are not reported as
-success. This same-user migration boundary cannot defend against malware
-already controlling the signed-in account.
+The local-server lifecycle is product-agnostic. It does not reserve application
+IDs, ports, source layouts, API versions, database contracts, or product-owned
+control planes. Each shortcut supplies only a local Node entry or package
+script, bounded arguments, an optional working directory, and a loopback health
+URL. Product-specific brokers, registrations, and shutdown contracts are not
+loaded or packaged. Existing historical compatibility evidence is ignored by
+the active runtime.
 
 The build validates the pinned Node archive before extraction. A previously
 extracted dependency cache is reused only after every cached path, size, and

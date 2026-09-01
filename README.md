@@ -11,7 +11,7 @@ Workspace Widget is a movable Windows 11 launcher for local web apps,
 applications, files, folders, and URLs. It runs as the branded
 `WorkspaceWidget.exe`; no console or `wscript.exe` window is used.
 
-Version `0.1.2` is a Windows-only release candidate. Its supported public
+Version `0.1.3` is a Windows-only release candidate. Its supported public
 distribution channel is a Microsoft Store MSIX package. Local development
 packages are unsigned and must never be presented as public downloads.
 
@@ -28,10 +28,8 @@ packages are unsigned and must never be presented as public downloads.
   endpoint every 30 seconds.
 - Start a trusted offline Node project or JavaScript entry, wait for its health
   endpoint, and open it when ready.
-- Start AX Store on demand and gracefully stop it only when a signed ownership
-  receipt proves that the exact process, artifacts, command line, ports, and
-  health contracts belong to Workspace Widget. External or stale instances are
-  shown as running but cannot be stopped.
+- Treat every configured local server through the same product-agnostic
+  `startup target + arguments + working directory + health URL` contract.
 - Use native Windows icons or eight original MIT-licensed semantic line icons,
   smooth scrolling, free move/resize, opacity and hover brightness, **Always on
   top**, and a 96 px edge-snapped **MIN UI** mode.
@@ -102,25 +100,11 @@ the menu shows **Configure server restart...** and opens the shortcut editor.
 If the widget still owns a live process tree, restart requires confirmation
 before force-stopping it and warns that unsaved server work can be lost.
 
-AX Store uses a separate fail-closed lifecycle path. Right-click its card to
-start it with the bundled Node runtime or to stop a verified Widget-owned
-instance. Stop requires a reason and explicit impact acknowledgement, closes
-the control and runtime APIs through AX Store's graceful shutdown contract,
-and never force-kills a process. The local migration installer requires an
-explicit canonical `-AxStoreLauncherPath`; it signs the launcher and runtime
-contract identity. Before launch, Windows PowerShell 5.1 applies and independently
-re-reads a named-pipe DACL restricted to the current user, SYSTEM, and
-Administrators. Missing registration or DACL evidence disables lifecycle actions.
-See
-[AX Store owned lifecycle](docs/AX-STORE-OWNED-LIFECYCLE.md).
-
-Version 0.1.2 can also migrate one exact pre-broker AX Store instance. The
-context menu exposes **Verify and stop outdated AX Store once…** only after its
-signed paths and hashes, current-user SID, exact command line and creation time,
-exclusive ownership of both ports, health identities, and runtime-contract
-digest match. This is not a general force-stop or ownership-adoption feature;
-it requires a reason, two explicit acknowledgements, a second identity readback,
-and signed one-time receipts.
+Workspace Widget does not reserve product names, IDs, ports, source layouts, or
+database contracts. A server card is restartable only from its saved generic
+fields. The widget never discovers or terminates an unrelated process by name
+or port; it can stop only a process tree started and tracked by the current
+widget instance, with explicit confirmation.
 
 Store and installed builds use only their checksum-pinned package-local Node.js
 and npm. They ignore `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`,
@@ -174,11 +158,11 @@ step that requires the exact Partner Center Product identity:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
-  -Version 0.1.2 `
+  -Version 0.1.3 `
   -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
-  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.2 `
+  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.3 `
   -StoreSubmission
 ```
 
@@ -191,7 +175,7 @@ Do not sideload or distribute the unsigned producer file.
 
 `Version` is the application release label. `PackageVersion` is the four-part
 Microsoft Store package identity version. Store packages require a nonzero first
-segment and reserve the fourth segment as `0`, so the `0.1.2` release candidate
+segment and reserve the fourth segment as `0`, so the `0.1.3` release candidate
 uses package version `1.0.0.0`.
 
 ## Verify

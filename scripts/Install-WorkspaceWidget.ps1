@@ -2,13 +2,11 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.2',
+  [string]$Version = '0.1.3',
   [string]$TaskName = 'Workspace Service Widget',
   [string]$TaskPath = '\',
   [string]$SessionId = 'manual',
-  [string]$BackupRoot,
-  [string]$AxStoreLauncherPath,
-  [string]$AxStoreLegacyNodePath
+  [string]$BackupRoot
 )
 
 Set-StrictMode -Version Latest
@@ -23,13 +21,9 @@ $defaultState = Join-Path $ProjectRoot 'app\default-state.json'
 $launcherScript = Join-Path $ProjectRoot 'scripts\Start-WorkspaceWidget.ps1'
 $autostartScript = Join-Path $ProjectRoot 'scripts\Set-WorkspaceWidgetAutostart.ps1'
 $buildScript = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'
-$lifecycleModule = Join-Path $ProjectRoot 'app\AxStoreLifecycle.psm1'
 $shortcutIcon = Join-Path $ProjectRoot 'assets\workspace-widget.ico'
 $statePath = Join-Path $env:LOCALAPPDATA 'WorkspaceServiceWidget\state.json'
 $stateRoot = Split-Path -Parent $statePath
-$axRegistrationRoot = Join-Path $stateRoot 'ax-store-lifecycle\registration'
-$axRegistrationKey = Join-Path $axRegistrationRoot 'registration.key'
-$axRegistrationDocument = Join-Path $axRegistrationRoot 'registration.json'
 $desktop = [Environment]::GetFolderPath('Desktop')
 $shortcutPath = Join-Path $desktop 'Workspace Widget.lnk'
 $startMenuPrograms = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'
@@ -43,7 +37,6 @@ foreach ($required in @(
     $launcherScript,
     $autostartScript,
     $buildScript,
-    $lifecycleModule,
     $shortcutIcon
   )) {
   if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -172,9 +165,7 @@ if (Test-Path -LiteralPath $releaseRoot) {
 
 $nativeHost = Join-Path $releaseRoot 'WorkspaceWidget.exe'
 $installedAppScript = Join-Path $releaseRoot 'app\WorkspaceWidget.ps1'
-$installedLifecycleModule = Join-Path $releaseRoot 'app\AxStoreLifecycle.psm1'
 $installedShortcutIcon = Join-Path $releaseRoot 'assets\workspace-widget.ico'
-$installedBundledNode = Join-Path $releaseRoot 'runtime\node\node.exe'
 
 if ([string]::IsNullOrWhiteSpace($BackupRoot)) {
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -215,8 +206,6 @@ function Add-BackupEntry {
 }
 
 Add-BackupEntry -SourcePath $statePath -RelativeBackupPath 'WorkspaceServiceWidget\state.json'
-Add-BackupEntry -SourcePath $axRegistrationKey -RelativeBackupPath 'WorkspaceServiceWidget\ax-store-lifecycle\registration\registration.key'
-Add-BackupEntry -SourcePath $axRegistrationDocument -RelativeBackupPath 'WorkspaceServiceWidget\ax-store-lifecycle\registration\registration.json'
 Add-BackupEntry -SourcePath $shortcutPath -RelativeBackupPath 'Desktop\Workspace Widget.lnk'
 Add-BackupEntry -SourcePath $startMenuShortcutPath -RelativeBackupPath 'StartMenu\Workspace Widget.lnk'
 Add-BackupEntry -SourcePath $rainmeterSettings -RelativeBackupPath 'Rainmeter\Rainmeter.ini'
@@ -253,29 +242,6 @@ $index | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $BackupRo
 New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
 if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
   Copy-Item -LiteralPath $defaultState -Destination $statePath
-}
-
-$stateDocument = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-$axStoreItems = @($stateDocument.items | Where-Object { [string]$_.id -eq 'ax-store' })
-if ($axStoreItems.Count -gt 1) {
-  throw 'Workspace Widget state contains more than one reserved ax-store item.'
-}
-$axStoreRegistrationResult = $null
-if ($axStoreItems.Count -eq 1) {
-  if ([string]::IsNullOrWhiteSpace($AxStoreLauncherPath)) {
-    throw 'An explicit -AxStoreLauncherPath is required to issue signed AX Store lifecycle registration.'
-  }
-  Import-Module -Name $installedLifecycleModule -Force
-  $axStoreRegistrationResult = Register-AxStoreLifecycle `
-    -Item $axStoreItems[0] `
-    -RuntimeRoot $stateRoot `
-    -LauncherPath $AxStoreLauncherPath `
-    -BundledNodePath $installedBundledNode `
-    -LegacyNodePath $AxStoreLegacyNodePath `
-    -ReleaseId $releaseId `
-    -ReleaseFingerprint $releaseFingerprint
-} elseif (-not [string]::IsNullOrWhiteSpace($AxStoreLauncherPath)) {
-  throw '-AxStoreLauncherPath was supplied, but state does not contain the reserved ax-store item.'
 }
 
 if (Test-Path -LiteralPath $rainmeterPath -PathType Leaf) {
@@ -366,9 +332,6 @@ $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -TaskPath $TaskPath
   releaseRoot = $releaseRoot
   releaseId = $releaseId
   releaseFingerprint = $releaseFingerprint
-  axStoreLifecycleRegistered = $null -ne $axStoreRegistrationResult
-  axStoreRegistrationPath = if ($null -ne $axStoreRegistrationResult) { [string]$axStoreRegistrationResult.registrationPath } else { $null }
-  axStoreRegistrationDigest = if ($null -ne $axStoreRegistrationResult) { [string]$axStoreRegistrationResult.registrationDigest } else { $null }
   installBuildRoot = $installBuildRoot
   stageRelocatedToRelease = $stageRelocatedToRelease
   statePath = $statePath
