@@ -2,12 +2,13 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.1',
+  [string]$Version = '0.1.2',
   [string]$TaskName = 'Workspace Service Widget',
   [string]$TaskPath = '\',
   [string]$SessionId = 'manual',
   [string]$BackupRoot,
-  [string]$AxStoreLauncherPath
+  [string]$AxStoreLauncherPath,
+  [string]$AxStoreLegacyNodePath
 )
 
 Set-StrictMode -Version Latest
@@ -31,6 +32,8 @@ $axRegistrationKey = Join-Path $axRegistrationRoot 'registration.key'
 $axRegistrationDocument = Join-Path $axRegistrationRoot 'registration.json'
 $desktop = [Environment]::GetFolderPath('Desktop')
 $shortcutPath = Join-Path $desktop 'Workspace Widget.lnk'
+$startMenuPrograms = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'
+$startMenuShortcutPath = Join-Path $startMenuPrograms 'Workspace Widget.lnk'
 $rainmeterPath = 'C:\Program Files\Rainmeter\Rainmeter.exe'
 $rainmeterSettings = Join-Path $env:APPDATA 'Rainmeter\Rainmeter.ini'
 
@@ -171,6 +174,7 @@ $nativeHost = Join-Path $releaseRoot 'WorkspaceWidget.exe'
 $installedAppScript = Join-Path $releaseRoot 'app\WorkspaceWidget.ps1'
 $installedLifecycleModule = Join-Path $releaseRoot 'app\AxStoreLifecycle.psm1'
 $installedShortcutIcon = Join-Path $releaseRoot 'assets\workspace-widget.ico'
+$installedBundledNode = Join-Path $releaseRoot 'runtime\node\node.exe'
 
 if ([string]::IsNullOrWhiteSpace($BackupRoot)) {
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -214,6 +218,7 @@ Add-BackupEntry -SourcePath $statePath -RelativeBackupPath 'WorkspaceServiceWidg
 Add-BackupEntry -SourcePath $axRegistrationKey -RelativeBackupPath 'WorkspaceServiceWidget\ax-store-lifecycle\registration\registration.key'
 Add-BackupEntry -SourcePath $axRegistrationDocument -RelativeBackupPath 'WorkspaceServiceWidget\ax-store-lifecycle\registration\registration.json'
 Add-BackupEntry -SourcePath $shortcutPath -RelativeBackupPath 'Desktop\Workspace Widget.lnk'
+Add-BackupEntry -SourcePath $startMenuShortcutPath -RelativeBackupPath 'StartMenu\Workspace Widget.lnk'
 Add-BackupEntry -SourcePath $rainmeterSettings -RelativeBackupPath 'Rainmeter\Rainmeter.ini'
 
 $existingTask = Get-ScheduledTask `
@@ -265,6 +270,8 @@ if ($axStoreItems.Count -eq 1) {
     -Item $axStoreItems[0] `
     -RuntimeRoot $stateRoot `
     -LauncherPath $AxStoreLauncherPath `
+    -BundledNodePath $installedBundledNode `
+    -LegacyNodePath $AxStoreLegacyNodePath `
     -ReleaseId $releaseId `
     -ReleaseFingerprint $releaseFingerprint
 } elseif (-not [string]::IsNullOrWhiteSpace($AxStoreLauncherPath)) {
@@ -325,6 +332,13 @@ $shortcut.WorkingDirectory = Split-Path -Parent $nativeHost
 $shortcut.Description = 'Restart or focus the Workspace desktop launcher'
 $shortcut.IconLocation = "$installedShortcutIcon,0"
 $shortcut.Save()
+$startMenuShortcut = $shell.CreateShortcut($startMenuShortcutPath)
+$startMenuShortcut.TargetPath = $nativeHost
+$startMenuShortcut.Arguments = "--state-path `"$statePath`""
+$startMenuShortcut.WorkingDirectory = Split-Path -Parent $nativeHost
+$startMenuShortcut.Description = 'Restart or focus the Workspace desktop launcher'
+$startMenuShortcut.IconLocation = "$installedShortcutIcon,0"
+$startMenuShortcut.Save()
 
 $previousHostOverride = $env:WORKSPACE_WIDGET_HOST_PATH
 try {
@@ -359,6 +373,7 @@ $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -TaskPath $TaskPath
   stageRelocatedToRelease = $stageRelocatedToRelease
   statePath = $statePath
   shortcutPath = $shortcutPath
+  startMenuShortcutPath = $startMenuShortcutPath
   backupRoot = $BackupRoot
   taskName = $TaskName
   taskPath = $TaskPath

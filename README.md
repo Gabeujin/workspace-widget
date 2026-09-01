@@ -11,7 +11,7 @@ Workspace Widget is a movable Windows 11 launcher for local web apps,
 applications, files, folders, and URLs. It runs as the branded
 `WorkspaceWidget.exe`; no console or `wscript.exe` window is used.
 
-Version `0.1.1` is a Windows-only release candidate. Its supported public
+Version `0.1.2` is a Windows-only release candidate. Its supported public
 distribution channel is a Microsoft Store MSIX package. Local development
 packages are unsigned and must never be presented as public downloads.
 
@@ -114,6 +114,14 @@ Administrators. Missing registration or DACL evidence disables lifecycle actions
 See
 [AX Store owned lifecycle](docs/AX-STORE-OWNED-LIFECYCLE.md).
 
+Version 0.1.2 can also migrate one exact pre-broker AX Store instance. The
+context menu exposes **Verify and stop outdated AX Store once…** only after its
+signed paths and hashes, current-user SID, exact command line and creation time,
+exclusive ownership of both ports, health identities, and runtime-contract
+digest match. This is not a general force-stop or ownership-adoption feature;
+it requires a reason, two explicit acknowledgements, a second identity readback,
+and signed one-time receipts.
+
 Store and installed builds use only their checksum-pinned package-local Node.js
 and npm. They ignore `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`,
 `WORKSPACE_WIDGET_NPM`, and system `PATH` runtimes. An unpackaged source checkout
@@ -166,11 +174,11 @@ step that requires the exact Partner Center Product identity:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
-  -Version 0.1.1 `
+  -Version 0.1.2 `
   -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
-  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.1 `
+  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.2 `
   -StoreSubmission
 ```
 
@@ -183,7 +191,7 @@ Do not sideload or distribute the unsigned producer file.
 
 `Version` is the application release label. `PackageVersion` is the four-part
 Microsoft Store package identity version. Store packages require a nonzero first
-segment and reserve the fourth segment as `0`, so the `0.1.1` release candidate
+segment and reserve the fourth segment as `0`, so the `0.1.2` release candidate
 uses package version `1.0.0.0`.
 
 ## Verify

@@ -103,6 +103,26 @@ Store's graceful shutdown export. Missing, stale, tampered, externally started,
 PID-reused, DACL-mismatched, or partially stopped instances fail closed; no `taskkill` fallback
 is permitted. PostgreSQL and AX Runtime Agent targets remain out of scope.
 
+Release 0.1.2 adds an exceptional one-time migration action for the exact
+pre-broker AX Store process. It is not ownership adoption and is unavailable to
+ordinary local servers. Signed registration schema v2 pins the canonical
+launcher, server, contract, bundled and legacy Node.js binaries, hashes, health
+URLs, and current-user SID. The live verifier additionally requires the same
+exclusive PID on both reserved ports, exact command line and creation FILETIME,
+matching service identities, and the exact contract-body digest. After two
+explicit acknowledgements, the Widget atomically creates a deterministic signed
+claim for that registered legacy identity. Because the pre-broker process has
+no authenticated graceful IPC, no unverified window or console signal is sent.
+The Widget opens a native process handle, verifies its creation FILETIME, image,
+hash, and token SID, re-verifies the complete process/port/command identity, and
+terminates only through that same handle. The fixed claim is cross-process and
+cross-session single-use evidence. It never selects a process by name or port
+and never retries against a replacement PID. Both ports and the process
+must be absent before a signed `STOPPED_FOR_MIGRATION` receipt is success;
+exceptions and partial or unknown outcomes fail closed and are not reported as
+success. This same-user migration boundary cannot defend against malware
+already controlling the signed-in account.
+
 The build validates the pinned Node archive before extraction. A previously
 extracted dependency cache is reused only after every cached path, size, and
 SHA-256 is compared directly with the entries in that already checksum-pinned

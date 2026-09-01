@@ -19,9 +19,9 @@ using Windows.ApplicationModel;
 [assembly: AssemblyCompany("Workspace Widget Contributors")]
 [assembly: AssemblyProduct("Workspace Widget")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Workspace Widget Contributors")]
-[assembly: AssemblyVersion("0.1.1.0")]
-[assembly: AssemblyFileVersion("0.1.1.0")]
-[assembly: AssemblyInformationalVersion("0.1.1")]
+[assembly: AssemblyVersion("0.1.2.0")]
+[assembly: AssemblyFileVersion("0.1.2.0")]
+[assembly: AssemblyInformationalVersion("0.1.2")]
 
 namespace WorkspaceWidget.Native
 {

@@ -3,12 +3,17 @@
 All notable changes to Workspace Widget are documented in this file.
 
 The project follows semantic versioning for release artifacts. The current
-0.1.1 build is a development preview and has not passed Microsoft Store
+0.1.2 build is a development preview and has not passed Microsoft Store
 certification.
 
 ## Unreleased
 
 ### Added
+
+- A signed, guarded one-time transition for the exact pre-broker AX Store
+  process, with dual acknowledgement, PID/creation/SID/command/path/hash/port/
+  health/contract continuity checks, exclusive request and completion receipts,
+  replay and concurrency rejection, and fail-closed partial-result handling.
 
 - AX Store on-demand lifecycle ownership receipts, capability-authenticated
   named-pipe control, restart recovery, and a reason-and-acknowledgement stop
@@ -77,6 +82,10 @@ certification.
   normal `youtu.be` share links.
 
 ### Security
+
+- AX Store registration schema v2 pins the server entry point, bundled and
+  legacy Node.js runtimes, current-user SID, and their SHA-256 digests in
+  addition to the launcher and runtime contract.
 
 - AX Store stop now fails closed unless the signed receipt, protected runtime
   directory, PID creation time, command line, executable and source hashes,

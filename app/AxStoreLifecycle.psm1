@@ -2,8 +2,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:LifecycleSchema = 'workspace-widget/ax-store-lifecycle/v1'
-$script:RegistrationSchema = 'workspace-widget/ax-store-registration/v1'
+$script:RegistrationSchema = 'workspace-widget/ax-store-registration/v2'
 $script:PipeAclPolicyVersion = 'workspace-widget/ax-store-pipe-acl/v1'
+$script:LegacyTransitionSchema = 'workspace-widget/ax-store-legacy-transition/v1'
+$script:LegacyTransitionMutex = 'Local\WorkspaceWidget.AxStore.LegacyTransition.v1'
 $script:ControlPort = 4520
 $script:RuntimePort = 4521
 
@@ -215,13 +217,34 @@ function Get-AxStoreRegistrationPaths {
 }
 
 function Get-AxStoreContractDescriptor {
-  param([Parameter(Mandatory = $true)][string]$LauncherPath)
+  param(
+    [Parameter(Mandatory = $true)][string]$LauncherPath,
+    [Parameter(Mandatory = $true)][string]$BundledNodePath,
+    [string]$LegacyNodePath
+  )
   $launcher = Assert-AxStoreCanonicalFile -Path $LauncherPath
   if ($launcher -notmatch '(?i)\\apps\\ax-store\\scripts\\workspace-widget-launcher\.js$') {
     throw 'The AX Store launcher must use the canonical apps\ax-store\scripts path.'
   }
   $contractPath = [IO.Path]::GetFullPath((Join-Path (Split-Path (Split-Path $launcher -Parent) -Parent) 'src\public\runtime-contract.json'))
   $contractPath = Assert-AxStoreCanonicalFile -Path $contractPath
+  $serverPath = [IO.Path]::GetFullPath((Join-Path (Split-Path (Split-Path $launcher -Parent) -Parent) 'src\server.js'))
+  $serverPath = Assert-AxStoreCanonicalFile -Path $serverPath
+  $bundledNode = Assert-AxStoreCanonicalFile -Path $BundledNodePath
+  if ([IO.Path]::GetExtension($bundledNode) -ine '.exe' -or [IO.Path]::GetFileName($bundledNode) -ine 'node.exe') {
+    throw 'The AX Store bundled runtime must be an exact node.exe file.'
+  }
+  $legacyNode = $null
+  if (-not [string]::IsNullOrWhiteSpace($LegacyNodePath)) {
+    $legacyNode = Assert-AxStoreCanonicalFile -Path $LegacyNodePath
+    if ([IO.Path]::GetFileName($legacyNode) -ine 'node.exe') {
+      throw 'The AX Store legacy transition runtime must be an exact node.exe file.'
+    }
+  }
+  $launcherSha256 = Get-AxStoreSha256 $launcher
+  $serverSha256 = Get-AxStoreSha256 $serverPath
+  $bundledNodeSha256 = Get-AxStoreSha256 $bundledNode
+  $legacyNodeSha256 = $(if ($null -eq $legacyNode) { '' } else { Get-AxStoreSha256 $legacyNode })
   $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
   if (
     [string]$contract.schemaVersion -ne 'ax.store/runtime-contract/v1' -or
@@ -248,13 +271,39 @@ function Get-AxStoreContractDescriptor {
     controlHealthUrl = $controlHealthUrl
     runtimeHealthUrl = $runtimeHealthUrl
   }
+  $legacyTransitionKey = ''
+  if ($null -ne $legacyNode) {
+    $legacyTransitionKey = Get-AxStoreTextSha256 (ConvertTo-AxStoreCanonicalJson ([ordered]@{
+      schema = $script:LegacyTransitionSchema
+      legacyNodePath = $legacyNode
+      legacyNodeSha256 = $legacyNodeSha256
+      serverPath = $serverPath
+      serverSha256 = $serverSha256
+      contractPath = $contractPath
+      contractSha256 = $contractSha256
+      userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+      controlPort = $script:ControlPort
+      runtimePort = $script:RuntimePort
+    }))
+  }
   return [pscustomobject]@{
     launcherPath = $launcher
-    launcherSha256 = Get-AxStoreSha256 $launcher
+    launcherSha256 = $launcherSha256
+    serverPath = $serverPath
+    serverSha256 = $serverSha256
     contractPath = $contractPath
     contractSha256 = $contractSha256
+    bundledNodePath = $bundledNode
+    bundledNodeSha256 = $bundledNodeSha256
+    legacyNodePath = $(if ($null -eq $legacyNode) { '' } else { $legacyNode })
+    legacyNodeSha256 = $legacyNodeSha256
+    legacyTransitionKey = $legacyTransitionKey
+    userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     controlHealthUrl = $controlHealthUrl
     runtimeHealthUrl = $runtimeHealthUrl
+    legacyControlHealthUrl = "http://127.0.0.1:$($script:ControlPort)/health"
+    legacyRuntimeHealthUrl = "http://127.0.0.1:$($script:RuntimePort)/health"
+    runtimeContractUrl = "http://127.0.0.1:$($script:ControlPort)/runtime-contract.json"
     healthContractDigest = Get-AxStoreTextSha256 (ConvertTo-AxStoreCanonicalJson $healthContract)
   }
 }
@@ -265,13 +314,15 @@ function Register-AxStoreLifecycle {
     [Parameter(Mandatory = $true)]$Item,
     [Parameter(Mandatory = $true)][string]$RuntimeRoot,
     [Parameter(Mandatory = $true)][string]$LauncherPath,
+    [Parameter(Mandatory = $true)][string]$BundledNodePath,
+    [string]$LegacyNodePath,
     [Parameter(Mandatory = $true)][string]$ReleaseId,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9A-Fa-f]{64}$')][string]$ReleaseFingerprint
   )
   if ([string]$Item.id -ne 'ax-store') { throw 'Only the fixed ax-store item can receive lifecycle registration.' }
-  $descriptor = Get-AxStoreContractDescriptor -LauncherPath $LauncherPath
+  $descriptor = Get-AxStoreContractDescriptor -LauncherPath $LauncherPath -BundledNodePath $BundledNodePath -LegacyNodePath $LegacyNodePath
   if (
-    [string]$Item.target -cne 'http://127.0.0.1:4520/' -or
+    [string]$Item.target -cne "http://127.0.0.1:$($script:ControlPort)/" -or
     [string]$Item.health -cne [string]$descriptor.controlHealthUrl -or
     -not [string]::Equals([IO.Path]::GetFullPath([string]$Item.startupTarget), [string]$descriptor.launcherPath, [StringComparison]::OrdinalIgnoreCase) -or
     -not [string]::IsNullOrWhiteSpace([string]$Item.startupArgs)
@@ -286,13 +337,24 @@ function Register-AxStoreLifecycle {
   $payload = [ordered]@{
     schema = $script:RegistrationSchema
     id = 'ax-store'
-    targetUrl = 'http://127.0.0.1:4520/'
+    targetUrl = "http://127.0.0.1:$($script:ControlPort)/"
     launcherPath = [string]$descriptor.launcherPath
     launcherSha256 = [string]$descriptor.launcherSha256
+    serverPath = [string]$descriptor.serverPath
+    serverSha256 = [string]$descriptor.serverSha256
     contractPath = [string]$descriptor.contractPath
     contractSha256 = [string]$descriptor.contractSha256
+    bundledNodePath = [string]$descriptor.bundledNodePath
+    bundledNodeSha256 = [string]$descriptor.bundledNodeSha256
+    legacyNodePath = [string]$descriptor.legacyNodePath
+    legacyNodeSha256 = [string]$descriptor.legacyNodeSha256
+    legacyTransitionKey = [string]$descriptor.legacyTransitionKey
+    userSid = [string]$descriptor.userSid
     controlHealthUrl = [string]$descriptor.controlHealthUrl
     runtimeHealthUrl = [string]$descriptor.runtimeHealthUrl
+    legacyControlHealthUrl = [string]$descriptor.legacyControlHealthUrl
+    legacyRuntimeHealthUrl = [string]$descriptor.legacyRuntimeHealthUrl
+    runtimeContractUrl = [string]$descriptor.runtimeContractUrl
     healthContractDigest = [string]$descriptor.healthContractDigest
     controlPort = $script:ControlPort
     runtimePort = $script:RuntimePort
@@ -334,8 +396,8 @@ function Read-AxStoreLifecycleRegistration {
     [int]$payload.runtimePort -ne $script:RuntimePort -or
     [string]$payload.releaseFingerprint -notmatch '^[0-9a-f]{64}$'
   ) { throw 'AX Store lifecycle registration identity is invalid.' }
-  $descriptor = Get-AxStoreContractDescriptor -LauncherPath ([string]$payload.launcherPath)
-  foreach ($property in @('launcherPath','launcherSha256','contractPath','contractSha256','controlHealthUrl','runtimeHealthUrl','healthContractDigest')) {
+  $descriptor = Get-AxStoreContractDescriptor -LauncherPath ([string]$payload.launcherPath) -BundledNodePath ([string]$payload.bundledNodePath) -LegacyNodePath ([string]$payload.legacyNodePath)
+  foreach ($property in @('launcherPath','launcherSha256','serverPath','serverSha256','contractPath','contractSha256','bundledNodePath','bundledNodeSha256','legacyNodePath','legacyNodeSha256','legacyTransitionKey','userSid','controlHealthUrl','runtimeHealthUrl','legacyControlHealthUrl','legacyRuntimeHealthUrl','runtimeContractUrl','healthContractDigest')) {
     if (-not [string]::Equals([string]$payload.$property, [string]$descriptor.$property, [StringComparison]::OrdinalIgnoreCase)) {
       throw "AX Store lifecycle registration no longer matches $property."
     }
@@ -369,6 +431,367 @@ function Get-AxStorePortOwners {
     $owners[$port] = @($pids)
   }
   return $owners
+}
+
+function Initialize-AxStoreCommandLineNative {
+  if ($null -ne ('WorkspaceWidget.AxStoreCommandLine.Native' -as [type])) { return }
+  Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+namespace WorkspaceWidget.AxStoreCommandLine {
+  public static class Native {
+    [DllImport("shell32.dll", SetLastError = true)]
+    private static extern IntPtr CommandLineToArgvW(
+      [MarshalAs(UnmanagedType.LPWStr)] string commandLine,
+      out int argumentCount);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
+
+    public static string[] Parse(string commandLine) {
+      int count;
+      IntPtr arguments = CommandLineToArgvW(commandLine, out count);
+      if (arguments == IntPtr.Zero) {
+        throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+      }
+      try {
+        var values = new List<string>(count);
+        for (int index = 0; index < count; index++) {
+          IntPtr value = Marshal.ReadIntPtr(arguments, index * IntPtr.Size);
+          values.Add(Marshal.PtrToStringUni(value));
+        }
+        return values.ToArray();
+      } finally {
+        LocalFree(arguments);
+      }
+    }
+  }
+}
+'@
+}
+
+function Get-AxStoreCommandLineArguments {
+  param([Parameter(Mandatory = $true)][string]$CommandLine)
+  Initialize-AxStoreCommandLineNative
+  return @([WorkspaceWidget.AxStoreCommandLine.Native]::Parse($CommandLine))
+}
+
+function Initialize-AxStoreVerifiedProcessNative {
+  if ($null -ne ('WorkspaceWidget.AxStoreProcess.VerifiedProcess' -as [type])) { return }
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+using System.Text;
+
+namespace WorkspaceWidget.AxStoreProcess {
+  public sealed class VerifiedProcess : IDisposable {
+    private const uint ProcessTerminate = 0x0001;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const uint Synchronize = 0x00100000;
+    private const uint TokenQuery = 0x0008;
+    private const int TokenUser = 1;
+    private const uint WaitObject0 = 0;
+    private const uint WaitTimeout = 258;
+    private IntPtr handle;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileTime { public uint Low; public uint High; }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr value);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint GetProcessId(IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetProcessTimes(IntPtr process, out FileTime creation, out FileTime exit, out FileTime kernel, out FileTime user);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder name, ref uint size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr value, uint milliseconds);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(IntPtr token, int informationClass, IntPtr information, int length, out int returnLength);
+
+    public int ProcessId { get; private set; }
+    public long CreationTimeFileTimeUtc { get; private set; }
+    public string ImagePath { get; private set; }
+    public string UserSid { get; private set; }
+
+    public static VerifiedProcess Open(int processId) { return new VerifiedProcess(processId, true); }
+    public static VerifiedProcess OpenQuery(int processId) { return new VerifiedProcess(processId, false); }
+
+    private VerifiedProcess(int processId, bool allowTerminate) {
+      uint access = ProcessQueryLimitedInformation | Synchronize;
+      if (allowTerminate) access |= ProcessTerminate;
+      handle = OpenProcess(access, false, processId);
+      if (handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+      try {
+        ProcessId = checked((int)GetProcessId(handle));
+        if (ProcessId == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+        FileTime creation, exit, kernel, user;
+        if (!GetProcessTimes(handle, out creation, out exit, out kernel, out user)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        CreationTimeFileTimeUtc = unchecked((long)(((ulong)creation.High << 32) | creation.Low));
+        var image = new StringBuilder(32768);
+        uint imageLength = checked((uint)image.Capacity);
+        if (!QueryFullProcessImageName(handle, 0, image, ref imageLength)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        ImagePath = image.ToString();
+        IntPtr token = IntPtr.Zero;
+        if (!OpenProcessToken(handle, TokenQuery, out token)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+          int needed;
+          GetTokenInformation(token, TokenUser, IntPtr.Zero, 0, out needed);
+          if (needed <= 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+          IntPtr buffer = Marshal.AllocHGlobal(needed);
+          try {
+            if (!GetTokenInformation(token, TokenUser, buffer, needed, out needed)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            IntPtr sid = Marshal.ReadIntPtr(buffer);
+            UserSid = new SecurityIdentifier(sid).Value;
+          } finally { Marshal.FreeHGlobal(buffer); }
+        } finally { CloseHandle(token); }
+      } catch {
+        Dispose();
+        throw;
+      }
+    }
+
+    public bool HasExited() {
+      EnsureOpen();
+      uint result = WaitForSingleObject(handle, 0);
+      if (result == WaitObject0) return true;
+      if (result == WaitTimeout) return false;
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public bool TerminateAndWait(uint milliseconds) {
+      EnsureOpen();
+      if (!HasExited() && !TerminateProcess(handle, 0x57574D47)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      uint result = WaitForSingleObject(handle, milliseconds);
+      if (result == WaitObject0) return true;
+      if (result == WaitTimeout) return false;
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private void EnsureOpen() {
+      if (handle == IntPtr.Zero) throw new ObjectDisposedException("VerifiedProcess");
+    }
+
+    public void Dispose() {
+      if (handle != IntPtr.Zero) {
+        CloseHandle(handle);
+        handle = IntPtr.Zero;
+      }
+      GC.SuppressFinalize(this);
+    }
+
+    ~VerifiedProcess() { Dispose(); }
+  }
+}
+'@
+}
+
+function Open-AxStoreVerifiedProcessHandle {
+  param([Parameter(Mandatory = $true)][int]$ProcessId)
+  Initialize-AxStoreVerifiedProcessNative
+  return [WorkspaceWidget.AxStoreProcess.VerifiedProcess]::Open($ProcessId)
+}
+
+function Assert-AxStoreVerifiedProcessHandle {
+  param(
+    [Parameter(Mandatory = $true)]$Handle,
+    [Parameter(Mandatory = $true)]$BaselineEvidence,
+    [Parameter(Mandatory = $true)]$Registration
+  )
+  if ([int]$Handle.ProcessId -ne [int]$BaselineEvidence.process.processId) {
+    throw 'The native AX Store process handle PID does not match the signed baseline identity.'
+  }
+  if ([int64]$Handle.CreationTimeFileTimeUtc -ne [int64]$BaselineEvidence.process.creationTimeFileTimeUtc) {
+    throw 'The native AX Store process handle creation FILETIME does not match the signed baseline identity.'
+  }
+  if (-not [string]::Equals([IO.Path]::GetFullPath([string]$Handle.ImagePath),[string]$Registration.payload.legacyNodePath,[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The native AX Store process handle image path does not match signed registration.'
+  }
+  if ([string]$Handle.UserSid -cne [string]$Registration.payload.userSid) {
+    throw 'The native AX Store process token SID does not match signed registration.'
+  }
+  if ((Get-AxStoreSha256 ([string]$Handle.ImagePath)) -ne [string]$Registration.payload.legacyNodeSha256) {
+    throw 'The native AX Store process handle image hash does not match signed registration.'
+  }
+}
+
+function Get-AxStoreProcessIdentity {
+  param([Parameter(Mandatory = $true)][int]$ProcessId)
+  $process = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop
+  Initialize-AxStoreVerifiedProcessNative
+  $queryHandle = [WorkspaceWidget.AxStoreProcess.VerifiedProcess]::OpenQuery($ProcessId)
+  try {
+    $creationFileTimeUtc = [int64]$queryHandle.CreationTimeFileTimeUtc
+    $executablePath = [string]$queryHandle.ImagePath
+    $userSid = [string]$queryHandle.UserSid
+  } finally {
+    $queryHandle.Dispose()
+  }
+  return [pscustomobject]@{
+    processId = [int]$process.ProcessId
+    creationTimeUtc = [datetime]::FromFileTimeUtc($creationFileTimeUtc).ToString('o')
+    creationTimeFileTimeUtc = $creationFileTimeUtc
+    executablePath = $executablePath
+    commandLine = [string]$process.CommandLine
+    commandLineSha256 = Get-AxStoreTextSha256 ([string]$process.CommandLine)
+    userSid = $userSid
+  }
+}
+
+function Test-AxStoreLegacyIdentitySnapshot {
+  param(
+    [Parameter(Mandatory = $true)]$Registration,
+    [Parameter(Mandatory = $true)]$Owners,
+    [Parameter(Mandatory = $true)]$ProcessIdentity
+  )
+  $payload = $Registration.payload
+  if ([string]::IsNullOrWhiteSpace([string]$payload.legacyNodePath)) {
+    throw 'Signed registration does not authorize a one-time legacy runtime transition.'
+  }
+  $controlOwners = @($Owners[$script:ControlPort])
+  $runtimeOwners = @($Owners[$script:RuntimePort])
+  if (
+    $controlOwners.Count -ne 1 -or
+    $runtimeOwners.Count -ne 1 -or
+    [int]$controlOwners[0] -ne [int]$runtimeOwners[0] -or
+    [int]$controlOwners[0] -ne [int]$ProcessIdentity.processId
+  ) { throw 'Both AX Store listeners must be owned exclusively by the same verified process.' }
+  $legacyNode = Assert-AxStoreCanonicalFile -Path ([string]$payload.legacyNodePath)
+  $serverPath = Assert-AxStoreCanonicalFile -Path ([string]$payload.serverPath)
+  foreach ($artifact in @(
+      @($legacyNode,[string]$payload.legacyNodeSha256),
+      @($serverPath,[string]$payload.serverSha256),
+      @([string]$payload.launcherPath,[string]$payload.launcherSha256),
+      @([string]$payload.contractPath,[string]$payload.contractSha256)
+    )) {
+    $trustedArtifact = Assert-AxStoreCanonicalFile -Path ([string]$artifact[0])
+    if ((Get-AxStoreSha256 $trustedArtifact) -ne [string]$artifact[1]) {
+      throw 'A registered AX Store legacy-transition artifact changed.'
+    }
+  }
+  if (
+    -not [string]::Equals([string]$ProcessIdentity.executablePath,$legacyNode,[StringComparison]::OrdinalIgnoreCase) -or
+    [string]$ProcessIdentity.userSid -cne [string]$payload.userSid -or
+    [string]$ProcessIdentity.userSid -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  ) { throw 'The legacy AX Store executable or user identity does not match signed registration.' }
+  $arguments = @(Get-AxStoreCommandLineArguments -CommandLine ([string]$ProcessIdentity.commandLine))
+  if (
+    $arguments.Count -ne 2 -or
+    -not [string]::Equals([IO.Path]::GetFullPath([string]$arguments[0]),$legacyNode,[StringComparison]::OrdinalIgnoreCase) -or
+    -not [string]::Equals([IO.Path]::GetFullPath([string]$arguments[1]),$serverPath,[StringComparison]::OrdinalIgnoreCase)
+  ) { throw 'The legacy AX Store command line contains an unregistered executable, entrypoint, or argument.' }
+  $identityPayload = [ordered]@{
+    processId = [int]$ProcessIdentity.processId
+    creationTimeFileTimeUtc = [int64]$ProcessIdentity.creationTimeFileTimeUtc
+    executablePath = $legacyNode
+    executableSha256 = [string]$payload.legacyNodeSha256
+    serverPath = $serverPath
+    serverSha256 = [string]$payload.serverSha256
+    commandLineSha256 = [string]$ProcessIdentity.commandLineSha256
+    userSid = [string]$ProcessIdentity.userSid
+    controlPort = $script:ControlPort
+    runtimePort = $script:RuntimePort
+    registrationDigest = [string]$Registration.digest
+  }
+  return [pscustomobject]@{
+    processId = [int]$ProcessIdentity.processId
+    processCreationTimeFileTimeUtc = [int64]$ProcessIdentity.creationTimeFileTimeUtc
+    commandLineSha256 = [string]$ProcessIdentity.commandLineSha256
+    identityDigest = Get-AxStoreTextSha256 (ConvertTo-AxStoreCanonicalJson $identityPayload)
+    payload = [pscustomobject]$identityPayload
+  }
+}
+
+function Get-AxStoreLegacyTransitionEvidence {
+  param(
+    [Parameter(Mandatory = $true)]$Registration,
+    [Parameter(Mandatory = $true)]$Owners,
+    [switch]$SkipHealth
+  )
+  $controlOwners = @($Owners[$script:ControlPort])
+  $runtimeOwners = @($Owners[$script:RuntimePort])
+  if ($controlOwners.Count -ne 1 -or $runtimeOwners.Count -ne 1 -or [int]$controlOwners[0] -ne [int]$runtimeOwners[0]) {
+    throw 'Legacy transition requires the same exclusive PID on both AX Store ports.'
+  }
+  $processIdentity = Get-AxStoreProcessIdentity -ProcessId ([int]$controlOwners[0])
+  $identity = Test-AxStoreLegacyIdentitySnapshot -Registration $Registration -Owners $Owners -ProcessIdentity $processIdentity
+  if (-not $SkipHealth) {
+    $controlResponse = Invoke-WebRequest -Uri ([string]$Registration.payload.legacyControlHealthUrl) -UseBasicParsing -TimeoutSec 3
+    $runtimeResponse = Invoke-WebRequest -Uri ([string]$Registration.payload.legacyRuntimeHealthUrl) -UseBasicParsing -TimeoutSec 3
+    $contractResponse = Invoke-WebRequest -Uri ([string]$Registration.payload.runtimeContractUrl) -UseBasicParsing -TimeoutSec 3
+    $controlHealth = $controlResponse.Content | ConvertFrom-Json
+    $runtimeHealth = $runtimeResponse.Content | ConvertFrom-Json
+    if (
+      [int]$controlResponse.StatusCode -ne 200 -or
+      [int]$runtimeResponse.StatusCode -ne 200 -or
+      [int]$contractResponse.StatusCode -ne 200 -or
+      $controlHealth.ok -ne $true -or [string]$controlHealth.status -ne 'ready' -or [string]$controlHealth.service -ne 'ax-store-control' -or
+      $runtimeHealth.ok -ne $true -or [string]$runtimeHealth.status -ne 'ready' -or [string]$runtimeHealth.service -ne 'ax-store-runtime' -or
+      (Get-AxStoreTextSha256 ([string]$contractResponse.Content)) -ne [string]$Registration.payload.contractSha256
+    ) { throw 'The legacy AX Store health and runtime-contract evidence did not match signed registration.' }
+  }
+  return [pscustomobject]@{
+    identity = $identity
+    process = $processIdentity
+    healthVerified = -not $SkipHealth
+  }
+}
+
+function Get-AxStoreLegacyTransitionPaths {
+  param(
+    [Parameter(Mandatory = $true)][string]$RuntimeRoot,
+    [Parameter(Mandatory = $true)]$Registration
+  )
+  $transitionKey = [string]$Registration.payload.legacyTransitionKey
+  if ($transitionKey -notmatch '^[0-9a-f]{64}$') {
+    throw 'The signed legacy transition key is invalid.'
+  }
+  $root = Join-Path $RuntimeRoot 'ax-store-lifecycle\legacy-transitions'
+  return [pscustomobject]@{
+    root=$root
+    claimPath=(Join-Path $root "transition-claim-$transitionKey.json")
+    transitionKey=$transitionKey
+  }
+}
+
+function Assert-AxStoreLegacyIdentityContinuity {
+  param(
+    [Parameter(Mandatory = $true)]$BaselineEvidence,
+    [Parameter(Mandatory = $true)]$FreshProcess,
+    [Parameter(Mandatory = $true)]$FreshIdentity
+  )
+  if (
+    [int]$FreshProcess.processId -ne [int]$BaselineEvidence.process.processId -or
+    [int64]$FreshProcess.creationTimeFileTimeUtc -ne [int64]$BaselineEvidence.process.creationTimeFileTimeUtc -or
+    [string]$FreshIdentity.identityDigest -cne [string]$BaselineEvidence.identity.identityDigest
+  ) { throw 'Legacy AX Store identity changed after confirmation; guarded termination was refused.' }
+}
+
+function Write-AxStoreSignedDocumentExclusive {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][byte[]]$Secret,
+    [Parameter(Mandatory = $true)]$Payload
+  )
+  $document = [ordered]@{payload=$Payload;signature=Get-AxStoreHmac -Secret $Secret -Payload $Payload}
+  $stream = [IO.FileStream]::new($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  try {
+    $writer = [IO.StreamWriter]::new($stream,[Text.UTF8Encoding]::new($false),4096,$true)
+    try { $writer.Write(($document | ConvertTo-Json -Depth 10)); $writer.Flush(); $stream.Flush($true) } finally { $writer.Dispose() }
+  } finally { $stream.Dispose() }
+  Protect-AxStoreLifecycleFile -Path $Path
+  return [pscustomobject]$document
 }
 
 function Read-AxStoreSignedDocument {
@@ -512,7 +935,7 @@ function Get-AxStoreLifecycleStatus {
   )
   $owners = Get-AxStorePortOwners
   $occupied = @($owners[$script:ControlPort]).Count -gt 0 -or @($owners[$script:RuntimePort]).Count -gt 0
-  $result = [ordered]@{ state='Offline'; owned=$false; stoppable=$false; reason='AX Store is not listening.'; instance=$null; ports=$owners }
+  $result = [ordered]@{ state='Offline'; owned=$false; stoppable=$false; legacyTransitionAvailable=$false; reason='AX Store is not listening.'; instance=$null; legacy=$null; ports=$owners }
   if (-not (Test-AxStoreLifecycleItem -Item $Item)) {
     $result.state = 'NotApplicable'; $result.reason = 'This shortcut is not reserved for AX Store lifecycle.'
     return [pscustomobject]$result
@@ -542,7 +965,7 @@ function Get-AxStoreLifecycleStatus {
       if ($payload.schema -ne $script:LifecycleSchema -or [string]$payload.instanceId -ne $directory.Name) { throw 'Ownership identity is inconsistent.' }
       if ((Get-AxStoreByteSha256 $secret) -ne [string]$payload.capabilitySha256) { throw 'The lifecycle capability no longer matches its receipt.' }
       if ([string]$payload.registrationDigest -ne [string]$registration.digest) { throw 'The ownership receipt does not match signed lifecycle registration.' }
-      foreach ($property in @('launcherPath','launcherSha256','contractPath','contractSha256','controlHealthUrl','runtimeHealthUrl','healthContractDigest')) {
+      foreach ($property in @('launcherPath','launcherSha256','serverPath','serverSha256','contractPath','contractSha256','bundledNodePath','bundledNodeSha256','userSid','controlHealthUrl','runtimeHealthUrl','healthContractDigest')) {
         if (-not [string]::Equals([string]$payload.$property, [string]$registration.payload.$property, [StringComparison]::OrdinalIgnoreCase)) {
           throw "Ownership no longer matches registered $property."
         }
@@ -555,6 +978,10 @@ function Get-AxStoreLifecycleStatus {
       $creation = ([datetime]$process.CreationDate).ToUniversalTime()
       if ([int64]$payload.processCreationTimeFileTimeUtc -ne $creation.ToFileTimeUtc()) { throw 'The PID was reused or its exact creation time changed.' }
       if (-not [string]::Equals([string]$process.ExecutablePath,[string]$payload.executablePath,[StringComparison]::OrdinalIgnoreCase)) { throw 'The broker executable path changed.' }
+      if (
+        -not [string]::Equals([string]$payload.executablePath,[string]$registration.payload.bundledNodePath,[StringComparison]::OrdinalIgnoreCase) -or
+        [string]$payload.executableSha256 -ne [string]$registration.payload.bundledNodeSha256
+      ) { throw 'The broker runtime no longer matches the installer-pinned bundled Node runtime.' }
       $commandHash = Get-AxStoreTextSha256 ([string]$process.CommandLine)
       if ($commandHash -ne [string]$payload.commandLineSha256) { throw 'The broker command line changed.' }
       if (
@@ -579,7 +1006,23 @@ function Get-AxStoreLifecycleStatus {
     } catch { continue }
   }
   if ($occupied) {
-    $result.state='RunningUnowned'; $result.reason='AX Store is running, but registration, ownership, or the live pipe DACL could not be verified.'
+    try {
+      $legacy = Get-AxStoreLegacyTransitionEvidence -Registration $registration -Owners $owners -SkipHealth:$SkipHealth
+      $legacyPaths = Get-AxStoreLegacyTransitionPaths -RuntimeRoot $RuntimeRoot -Registration $registration
+      if (Test-Path -LiteralPath $legacyPaths.claimPath) {
+        $result.state='LegacyTransitionConsumed'
+        $result.reason='The one-time transition for this exact legacy AX Store runtime was already claimed; automatic retry is disabled.'
+        $result.legacy=$legacy
+        return [pscustomobject]$result
+      }
+      $result.state=$(if($SkipHealth){'LegacyTransitionCandidate'}else{'LegacyStopEligible'})
+      $result.reason='A signed, exact-identity one-time transition is available for the pre-broker AX Store process.'
+      $result.legacyTransitionAvailable=$true
+      $result.legacy=$legacy
+      return [pscustomobject]$result
+    } catch {
+      $result.state='RunningUnowned'; $result.reason='AX Store is running, but signed ownership or exact legacy-transition identity could not be verified.'
+    }
   }
   return [pscustomobject]$result
 }
@@ -600,6 +1043,10 @@ function Start-AxStoreOwnedInstance {
   $launcherPath = [string]$registration.payload.launcherPath
   $contractPath = [string]$registration.payload.contractPath
   $bundledNode = Assert-AxStoreCanonicalFile -Path $BundledNodePath
+  if (
+    -not [string]::Equals($bundledNode,[string]$registration.payload.bundledNodePath,[StringComparison]::OrdinalIgnoreCase) -or
+    (Get-AxStoreSha256 $bundledNode) -ne [string]$registration.payload.bundledNodeSha256
+  ) { throw 'The requested bundled Node runtime does not match signed AX Store registration.' }
   $broker = Assert-AxStoreCanonicalFile -Path $BrokerPath
   $instanceId = [guid]::NewGuid().ToString('N')
   $instanceRoot = Join-Path (Get-AxStoreLifecycleRoot $RuntimeRoot) $instanceId
@@ -738,4 +1185,137 @@ function Stop-AxStoreOwnedInstance {
   return [pscustomobject]@{success=([string]$receipt.payload.status -eq 'STOPPED' -and $closed);state=[string]$receipt.payload.status;controlPortClosed=@($ports[$script:ControlPort]).Count -eq 0;runtimePortClosed=@($ports[$script:RuntimePort]).Count -eq 0;receiptPath=$receiptPath}
 }
 
-Export-ModuleMember -Function Get-AxStoreLifecycleStatus,Register-AxStoreLifecycle,Start-AxStoreOwnedInstance,Stop-AxStoreOwnedInstance,Test-AxStoreLifecycleItem
+function Stop-AxStoreVerifiedLegacyInstance {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]$Item,
+    [Parameter(Mandatory = $true)][string]$RuntimeRoot,
+    [Parameter(Mandatory = $true)][string]$Reason,
+    [switch]$AcknowledgedImpact,
+    [switch]$AcknowledgedLegacyTermination
+  )
+  if (-not $AcknowledgedImpact -or -not $AcknowledgedLegacyTermination -or $Reason.Trim().Length -lt 3) {
+    throw 'A reason and both explicit impact and legacy-termination acknowledgements are required.'
+  }
+  $mutex = [Threading.Mutex]::new($false,$script:LegacyTransitionMutex)
+  $acquired = $false
+  $registration = $null
+  $evidence = $null
+  $requestId = $null
+  $completionPath = $null
+  $requestWritten = $false
+  try {
+    $acquired = $mutex.WaitOne(0)
+    if (-not $acquired) {
+      return [pscustomobject]@{success=$false;state='STOP_ALREADY_IN_PROGRESS';error='Another AX Store legacy transition is already running.'}
+    }
+    $registration = Read-AxStoreLifecycleRegistration -Item $Item -RuntimeRoot $RuntimeRoot
+    $owners = Get-AxStorePortOwners
+    $evidence = Get-AxStoreLegacyTransitionEvidence -Registration $registration -Owners $owners
+    $requestId = [guid]::NewGuid().ToString('N')
+    $paths = Get-AxStoreLegacyTransitionPaths -RuntimeRoot $RuntimeRoot -Registration $registration
+    Protect-AxStoreLifecycleDirectory -Path $paths.root
+    $requestPath = $paths.claimPath
+    $completionPath = Join-Path $paths.root "transition-completed-$requestId.json"
+    $requestPayload = [ordered]@{
+      schema = $script:LegacyTransitionSchema
+      action = 'STOP_LEGACY_ONCE'
+      requestId = $requestId
+      identityDigest = [string]$evidence.identity.identityDigest
+      registrationDigest = [string]$registration.digest
+      transitionKey = [string]$paths.transitionKey
+      processId = [int]$evidence.process.processId
+      processCreationTimeFileTimeUtc = [int64]$evidence.process.creationTimeFileTimeUtc
+      reason = $Reason.Trim()
+      acknowledgedImpact = $true
+      acknowledgedLegacyTermination = $true
+      requestedAt = (Get-Date).ToUniversalTime().ToString('o')
+    }
+    try {
+      Write-AxStoreSignedDocumentExclusive -Path $requestPath -Secret $registration.secret -Payload $requestPayload | Out-Null
+    } catch [IO.IOException] {
+      return [pscustomobject]@{success=$false;state='STOP_ALREADY_CLAIMED';error='The one-time transition for this exact legacy runtime was already claimed.';requestPath=$requestPath}
+    }
+    $requestWritten = $true
+
+    $verifiedHandle = $null
+    $forcedMigrationTermination = $false
+    try {
+      $verifiedHandle = Open-AxStoreVerifiedProcessHandle -ProcessId ([int]$evidence.process.processId)
+      Assert-AxStoreVerifiedProcessHandle -Handle $verifiedHandle -BaselineEvidence $evidence -Registration $registration
+      $freshOwners = Get-AxStorePortOwners
+      $freshProcess = Get-AxStoreProcessIdentity -ProcessId ([int]$evidence.process.processId)
+      $freshIdentity = Test-AxStoreLegacyIdentitySnapshot -Registration $registration -Owners $freshOwners -ProcessIdentity $freshProcess
+      Assert-AxStoreLegacyIdentityContinuity -BaselineEvidence $evidence -FreshProcess $freshProcess -FreshIdentity $freshIdentity
+      Assert-AxStoreVerifiedProcessHandle -Handle $verifiedHandle -BaselineEvidence $evidence -Registration $registration
+      $forcedMigrationTermination = $true
+      $terminated = $verifiedHandle.TerminateAndWait(12000)
+      if (-not $terminated) { throw 'The verified legacy AX Store process did not exit within the bounded wait.' }
+    } finally {
+      if ($null -ne $verifiedHandle) { $verifiedHandle.Dispose() }
+    }
+    $finalOwners = Get-AxStorePortOwners
+    $processStillAlive = $null -ne (Get-Process -Id ([int]$evidence.process.processId) -ErrorAction SilentlyContinue)
+    $controlPortClosed = @($finalOwners[$script:ControlPort]).Count -eq 0
+    $runtimePortClosed = @($finalOwners[$script:RuntimePort]).Count -eq 0
+    $verifiedStopped = -not $processStillAlive -and $controlPortClosed -and $runtimePortClosed
+    $completionPayload = [ordered]@{
+      schema = $script:LegacyTransitionSchema
+      action = 'STOP_LEGACY_ONCE'
+      requestId = $requestId
+      identityDigest = [string]$evidence.identity.identityDigest
+      registrationDigest = [string]$registration.digest
+      status = $(if($verifiedStopped){'STOPPED_FOR_MIGRATION'}else{'PARTIAL_OR_UNKNOWN'})
+      gracefulAttempted = $false
+      gracefulAvailable = $false
+      forcedMigrationTermination = $forcedMigrationTermination
+      processExited = -not $processStillAlive
+      controlPortClosed = $controlPortClosed
+      runtimePortClosed = $runtimePortClosed
+      completedAt = (Get-Date).ToUniversalTime().ToString('o')
+    }
+    Write-AxStoreSignedDocumentExclusive -Path $completionPath -Secret $registration.secret -Payload $completionPayload | Out-Null
+    return [pscustomobject]@{
+      success=$verifiedStopped
+      state=[string]$completionPayload.status
+      processId=[int]$evidence.process.processId
+      controlPortClosed=$controlPortClosed
+      runtimePortClosed=$runtimePortClosed
+      forcedMigrationTermination=$forcedMigrationTermination
+      requestPath=$requestPath
+      receiptPath=$completionPath
+    }
+  } catch {
+    $failureMessage = $_.Exception.Message
+    $failureReceiptPath = $null
+    if ($requestWritten -and $null -ne $registration -and $null -ne $evidence -and -not [string]::IsNullOrWhiteSpace([string]$completionPath)) {
+      try {
+        $failureOwners = Get-AxStorePortOwners
+        $failureProcessAlive = $null -ne (Get-Process -Id ([int]$evidence.process.processId) -ErrorAction SilentlyContinue)
+        $failurePayload = [ordered]@{
+          schema = $script:LegacyTransitionSchema
+          action = 'STOP_LEGACY_ONCE'
+          requestId = $requestId
+          identityDigest = [string]$evidence.identity.identityDigest
+          registrationDigest = [string]$registration.digest
+          status = 'PARTIAL_OR_UNKNOWN'
+          processExited = -not $failureProcessAlive
+          controlPortClosed = @($failureOwners[$script:ControlPort]).Count -eq 0
+          runtimePortClosed = @($failureOwners[$script:RuntimePort]).Count -eq 0
+          error = $failureMessage
+          completedAt = (Get-Date).ToUniversalTime().ToString('o')
+        }
+        Write-AxStoreSignedDocumentExclusive -Path $completionPath -Secret $registration.secret -Payload $failurePayload | Out-Null
+        $failureReceiptPath = $completionPath
+      } catch {
+        $failureReceiptPath = $null
+      }
+    }
+    return [pscustomobject]@{success=$false;state='STOP_DENIED_OR_FAILED';error=$failureMessage;receiptPath=$failureReceiptPath}
+  } finally {
+    if ($acquired) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
+  }
+}
+
+Export-ModuleMember -Function Get-AxStoreLifecycleStatus,Register-AxStoreLifecycle,Start-AxStoreOwnedInstance,Stop-AxStoreOwnedInstance,Stop-AxStoreVerifiedLegacyInstance,Test-AxStoreLifecycleItem

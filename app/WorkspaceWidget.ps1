@@ -4663,12 +4663,12 @@ function Update-ServerRecoveryMenuItem {
 }
 
 function Show-AxStoreStopDialog {
-  param($Item)
+  param($Item,[switch]$LegacyTransition)
 
   $dialog = [System.Windows.Window]::new()
   $dialog.Title = 'Stop AX Store safely'
   $dialog.Width = 430
-  $dialog.Height = 390
+  $dialog.Height = $(if($LegacyTransition){470}else{390})
   $dialog.ResizeMode = [System.Windows.ResizeMode]::NoResize
   $dialog.WindowStartupLocation = [System.Windows.WindowStartupLocation]::CenterOwner
   $dialog.Owner = $script:window
@@ -4681,12 +4681,16 @@ function Show-AxStoreStopDialog {
   $panel.Margin = [System.Windows.Thickness]::new(28, 24, 28, 24)
   $dialog.Content = $panel
   $title = [System.Windows.Controls.TextBlock]::new()
-  $title.Text = 'Stop the Widget-owned AX Store?'
+  $title.Text = $(if($LegacyTransition){'Stop the outdated AX Store once?'}else{'Stop the Widget-owned AX Store?'})
   $title.FontSize = 20
   $title.FontWeight = [System.Windows.FontWeights]::SemiBold
   $panel.Children.Add($title) | Out-Null
   $impact = [System.Windows.Controls.TextBlock]::new()
-  $impact.Text = "This gracefully closes the AX Store control API (port 4520), runtime API (port 4521), identity session, and database pool. PostgreSQL is not stopped."
+  $impact.Text = if($LegacyTransition){
+    'This pre-broker process has no trusted graceful-stop channel. The Widget will reverify its signed registration, exact executable and server hashes, user SID, command line, creation time, both listeners, and health evidence; it will then terminate only that exact process for a one-time migration. PostgreSQL is not stopped.'
+  }else{
+    'This gracefully closes the AX Store control API (port 4520), runtime API (port 4521), identity session, and database pool. PostgreSQL is not stopped.'
+  }
   $impact.TextWrapping = [System.Windows.TextWrapping]::Wrap
   $impact.Foreground = Convert-ToBrush '#FFC3D0E3'
   $impact.Margin = [System.Windows.Thickness]::new(0, 12, 0, 18)
@@ -4709,6 +4713,18 @@ function Show-AxStoreStopDialog {
   $acknowledge.Margin = [System.Windows.Thickness]::new(0, 0, 0, 20)
   [System.Windows.Automation.AutomationProperties]::SetName($acknowledge, 'Acknowledge AX Store stop impact')
   $panel.Children.Add($acknowledge) | Out-Null
+  $legacyAcknowledge = $null
+  if($LegacyTransition){
+    $legacyAcknowledge = [System.Windows.Controls.CheckBox]::new()
+    $legacyAcknowledgeText = [System.Windows.Controls.TextBlock]::new()
+    $legacyAcknowledgeText.Text = 'I understand this one-time legacy transition may terminate the exact process without a graceful IPC shutdown.'
+    $legacyAcknowledgeText.TextWrapping = [System.Windows.TextWrapping]::Wrap
+    $legacyAcknowledge.Content = $legacyAcknowledgeText
+    $legacyAcknowledge.Foreground = Convert-ToBrush '#FFFFC9CF'
+    $legacyAcknowledge.Margin = [System.Windows.Thickness]::new(0, -8, 0, 20)
+    [System.Windows.Automation.AutomationProperties]::SetName($legacyAcknowledge, 'Acknowledge guarded legacy AX Store termination')
+    $panel.Children.Add($legacyAcknowledge) | Out-Null
+  }
   $buttons = [System.Windows.Controls.StackPanel]::new()
   $buttons.Orientation = [System.Windows.Controls.Orientation]::Horizontal
   $buttons.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
@@ -4738,16 +4754,18 @@ function Show-AxStoreStopDialog {
   $buttons.Children.Add($stop) | Out-Null
   $panel.Children.Add($buttons) | Out-Null
   $updateStop = {
-    $stop.IsEnabled = $reason.Text.Trim().Length -ge 3 -and $acknowledge.IsChecked -eq $true
+    $legacyConfirmed = -not $LegacyTransition -or ($null -ne $legacyAcknowledge -and $legacyAcknowledge.IsChecked -eq $true)
+    $stop.IsEnabled = $reason.Text.Trim().Length -ge 3 -and $acknowledge.IsChecked -eq $true -and $legacyConfirmed
   }
   $reason.Add_TextChanged($updateStop)
   $acknowledge.Add_Click($updateStop)
+  if($null -ne $legacyAcknowledge){$legacyAcknowledge.Add_Click($updateStop)}
   $cancel.Add_Click({ $dialog.DialogResult = $false; $dialog.Close() })
   $stop.Add_Click({ $dialog.DialogResult = $true; $dialog.Close() })
   $dialog.Add_ContentRendered({ $reason.Focus() | Out-Null })
   $confirmed = $dialog.ShowDialog()
   if ($confirmed -ne $true) { return $null }
-  return [pscustomobject]@{ reason=$reason.Text.Trim(); acknowledgedImpact=$true }
+  return [pscustomobject]@{ reason=$reason.Text.Trim(); acknowledgedImpact=$true; acknowledgedLegacyTermination=[bool]$LegacyTransition }
 }
 
 function Get-AxStoreMenuStatus {
@@ -4777,7 +4795,17 @@ function Update-AxStoreLifecycleMenuItem {
     }
     'RunningUnowned' {
       $MenuItem.Header = 'Running - not Widget-owned'
-      $MenuItem.ToolTip = 'Stop is disabled because this process was not started by the trusted Widget lifecycle broker.'
+      $MenuItem.ToolTip = 'Stop is disabled because neither broker ownership nor the signed exact-identity legacy transition could be verified.'
+      $MenuItem.IsEnabled = $false
+    }
+    'LegacyTransitionCandidate' {
+      $MenuItem.Header = 'Verify and stop outdated AX Store once...'
+      $MenuItem.ToolTip = 'Runs a fresh signed identity, listener, health, and contract verification before a one-time migration stop.'
+      $MenuItem.IsEnabled = $true
+    }
+    'LegacyTransitionConsumed' {
+      $MenuItem.Header = 'Outdated AX Store transition already used'
+      $MenuItem.ToolTip = 'Automatic retry is disabled for this exact legacy runtime. Review the signed transition receipts.'
       $MenuItem.IsEnabled = $false
     }
     default {
@@ -4796,27 +4824,32 @@ function Invoke-AxStoreLifecycleMenuAction {
     Queue-NodeStart -Item $Item -OpenWhenHealthy $false -RestartTrackedProcess $false
     return
   }
-  if ($status.state -ne 'OwnedOnline') {
+  $legacyTransition = [string]$status.state -eq 'LegacyTransitionCandidate'
+  if ($status.state -ne 'OwnedOnline' -and -not $legacyTransition) {
     Show-Toast -Message 'AX Store is running but is not owned by this Widget'
     return
   }
-  $request = Show-AxStoreStopDialog -Item $Item
+  $request = Show-AxStoreStopDialog -Item $Item -LegacyTransition:$legacyTransition
   if ($null -eq $request) { return }
   $script:axStoreLifecycleBusy = $true
-  Show-Toast -Message 'Gracefully stopping AX Store...'
+  Show-Toast -Message $(if($legacyTransition){'Verifying and stopping the outdated AX Store...'}else{'Gracefully stopping AX Store...'})
   try {
-    $result = Stop-AxStoreOwnedInstance -Item $Item -RuntimeRoot $runtimeRoot -Reason $request.reason -AcknowledgedImpact
+    $result = if($legacyTransition){
+      Stop-AxStoreVerifiedLegacyInstance -Item $Item -RuntimeRoot $runtimeRoot -Reason $request.reason -AcknowledgedImpact -AcknowledgedLegacyTermination
+    }else{
+      Stop-AxStoreOwnedInstance -Item $Item -RuntimeRoot $runtimeRoot -Reason $request.reason -AcknowledgedImpact
+    }
     if ([bool]$result.success) {
       $script:healthStates[[string]$Item.id] = $false
-      Show-Toast -Message 'AX Store stopped safely; both listeners are closed'
-      Write-RuntimeLog "AX Store graceful stop completed. receipt='$($result.receiptPath)'"
+      Show-Toast -Message $(if($legacyTransition){'Outdated AX Store stopped for migration; both listeners are closed'}else{'AX Store stopped gracefully; both listeners are closed'})
+      Write-RuntimeLog "AX Store stop completed. state=$($result.state) receipt='$($result.receiptPath)'"
       Start-HealthCheck
     } else {
-      Show-Toast -Message 'AX Store stop was not verified; no force-stop was attempted'
+      Show-Toast -Message 'AX Store stop was not verified; no retry was attempted'
       Write-RuntimeLog "AX Store graceful stop not verified. state=$($result.state) error=$($result.error)"
     }
   } catch {
-    Show-Toast -Message 'AX Store stop was denied or failed; no force-stop was attempted'
+    Show-Toast -Message 'AX Store stop was denied or failed; no retry was attempted'
     Write-RuntimeLog "AX Store graceful stop failed closed. $($_.Exception.Message)"
   } finally { $script:axStoreLifecycleBusy = $false }
 }
