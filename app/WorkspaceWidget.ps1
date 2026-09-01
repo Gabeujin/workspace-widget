@@ -4528,15 +4528,32 @@ function Stop-ProcessTree {
   return $true
 }
 
+function Test-TrackedLocalServer {
+  param($Item)
+
+  $itemId = [string]$Item.id
+  if (-not $script:serverProcesses.ContainsKey($itemId)) {
+    return $false
+  }
+
+  try {
+    $process = $script:serverProcesses[$itemId]
+    return $null -ne $process -and -not $process.HasExited
+  } catch {
+    return $false
+  }
+}
+
 function Stop-TrackedLocalServer {
   param(
     $Item,
-    [switch]$ConfirmForce
+    [switch]$ConfirmForce,
+    [switch]$AllowMissing
   )
 
   $itemId = [string]$Item.id
   if (-not $script:serverProcesses.ContainsKey($itemId)) {
-    return $true
+    return [bool]$AllowMissing
   }
 
   $process = $script:serverProcesses[$itemId]
@@ -4552,12 +4569,12 @@ function Stop-TrackedLocalServer {
           [System.Windows.MessageBoxResult]::No
         )
         if ($confirmation -ne [System.Windows.MessageBoxResult]::Yes) {
-          Write-RuntimeLog "Tracked server restart canceled for '$itemId'. PID=$($process.Id)"
+          Write-RuntimeLog "Tracked server stop canceled for '$itemId'. PID=$($process.Id)"
           return $false
         }
       }
       Stop-ProcessTree -Process $process | Out-Null
-      Write-RuntimeLog "Stopped tracked server '$($Item.name)' before recovery. PID=$($process.Id)"
+      Write-RuntimeLog "Stopped tracked server '$($Item.name)'. PID=$($process.Id)"
     }
     [void]$script:serverProcesses.Remove($itemId)
     return $true
@@ -4607,7 +4624,7 @@ function Queue-NodeStart {
 
   if ($healthKnown) {
     if ($RestartTrackedProcess) {
-      if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce)) {
+      if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce -AllowMissing)) {
         Show-Toast -Message "Restart canceled for $($Item.name)"
         return
       }
@@ -4644,6 +4661,27 @@ function Queue-NodeServerRecovery {
     -RestartTrackedProcess $true
 }
 
+function Invoke-ServerLifecycleMenuAction {
+  param($Item)
+
+  $itemId = [string]$Item.id
+  if (Test-TrackedLocalServer -Item $Item) {
+    if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce)) {
+      Show-Toast -Message "Stop canceled for $($Item.name)"
+      return
+    }
+    if ($script:pendingOpen.ContainsKey($itemId)) {
+      [void]$script:pendingOpen.Remove($itemId)
+    }
+    $script:healthStates[$itemId] = $false
+    Show-Toast -Message "Stopped $($Item.name)"
+    Start-HealthCheck
+    return
+  }
+
+  Queue-NodeServerRecovery -Item $Item
+}
+
 function Update-ServerRecoveryMenuItem {
   param($MenuItem)
 
@@ -4653,6 +4691,13 @@ function Update-ServerRecoveryMenuItem {
 
   $item = $MenuItem.Tag
   $itemId = [string]$item.id
+  if (Test-TrackedLocalServer -Item $item) {
+    $MenuItem.Header = 'Stop server...'
+    $MenuItem.ToolTip = 'Force-stops only the process tree started and tracked by this Widget. Confirmation is required.'
+    $MenuItem.IsEnabled = $true
+    return
+  }
+
   $healthKnown = $script:healthStates.ContainsKey($itemId)
   $healthy = $healthKnown -and [bool]$script:healthStates[$itemId]
   if ($healthy) {
@@ -7201,10 +7246,10 @@ function New-LauncherCard {
     $serverRecovery.Add_Click({
         param($sender, $eventArgs)
         try {
-          Queue-NodeServerRecovery -Item $sender.Tag
+          Invoke-ServerLifecycleMenuAction -Item $sender.Tag
         } catch {
-          Show-Toast -Message "Could not restart $($sender.Tag.name)"
-          Write-RuntimeLog "Server recovery request failed for '$($sender.Tag.id)'. $($_.Exception.Message)"
+          Show-Toast -Message "Could not change $($sender.Tag.name) server state"
+          Write-RuntimeLog "Server lifecycle request failed for '$($sender.Tag.id)'. $($_.Exception.Message)"
         }
       })
     $context.Items.Add($serverRecovery) | Out-Null
@@ -7447,7 +7492,7 @@ function Complete-HealthCheck {
             $pendingOpen.PSObject.Properties.Name -contains 'restartTrackedProcess' -and
             [bool]$pendingOpen.restartTrackedProcess
           ) {
-            if (-not (Stop-TrackedLocalServer -Item $pendingOpen.item -ConfirmForce)) {
+            if (-not (Stop-TrackedLocalServer -Item $pendingOpen.item -ConfirmForce -AllowMissing)) {
               $script:pendingOpen.Remove($itemId)
               Show-Toast -Message "Restart canceled for $($pendingOpen.item.name)"
               continue
@@ -7675,6 +7720,10 @@ if ($StartupProbe) {
   $healthy = $false
   $tokenMatched = $false
   $statusCode = $null
+  $trackedBeforeStop = $false
+  $stopSucceeded = $false
+  $processExitedAfterStop = $false
+  $trackedRemoved = $false
   $startedAt = Get-Date
   try {
     Start-LocalServer -Item $probeItem | Out-Null
@@ -7698,8 +7747,20 @@ if ($StartupProbe) {
       }
     }
 
+    $trackedBeforeStop = Test-TrackedLocalServer -Item $probeItem
+    $stopSucceeded = Stop-TrackedLocalServer -Item $probeItem
+    if ($null -ne $probeProcess) {
+      try {
+        $probeProcess.Refresh()
+        $processExitedAfterStop = [bool]$probeProcess.HasExited
+      } catch {
+        $processExitedAfterStop = $true
+      }
+    }
+    $trackedRemoved = -not $script:serverProcesses.ContainsKey('startup-probe')
+
     [pscustomobject]@{
-      success = $healthy
+      success = $healthy -and $trackedBeforeStop -and $stopSucceeded -and $processExitedAfterStop -and $trackedRemoved
       bundledNodePath = $bundledNodePath
       bundledNodeVersion = (& $bundledNodePath --version)
       processId = if ($null -ne $probeProcess) { $probeProcess.Id } else { $null }
@@ -7708,6 +7769,10 @@ if ($StartupProbe) {
       expectedTokenMatched = [bool]$tokenMatched
       readyMilliseconds = [math]::Round(((Get-Date) - $startedAt).TotalMilliseconds)
       windowStyle = 'Hidden'
+      trackedBeforeStop = [bool]$trackedBeforeStop
+      stopSucceeded = [bool]$stopSucceeded
+      processExitedAfterStop = [bool]$processExitedAfterStop
+      trackedRemoved = [bool]$trackedRemoved
     } | ConvertTo-Json -Depth 5
   }
   finally {
@@ -7721,7 +7786,7 @@ if ($StartupProbe) {
       }
     }
   }
-  if (-not $healthy) {
+  if (-not ($healthy -and $trackedBeforeStop -and $stopSucceeded -and $processExitedAfterStop -and $trackedRemoved)) {
     exit 1
   }
   exit 0

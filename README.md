@@ -11,7 +11,7 @@ Workspace Widget is a movable Windows 11 launcher for local web apps,
 applications, files, folders, and URLs. It runs as the branded
 `WorkspaceWidget.exe`; no console or `wscript.exe` window is used.
 
-Version `0.1.3` is a Windows-only release candidate. Its supported public
+Version `0.1.4` is a Windows-only release candidate. Its supported public
 distribution channel is a Microsoft Store MSIX package. Local development
 packages are unsigned and must never be presented as public downloads.
 
@@ -95,10 +95,13 @@ permissions.
 
 Right-click a health-checked card to use **Restart server** while it is offline.
 The action runs only the explicitly configured Node start target, waits for the
-health endpoint, and leaves the target URL closed. If no start target is saved,
-the menu shows **Configure server restart...** and opens the shortcut editor.
-If the widget still owns a live process tree, restart requires confirmation
-before force-stopping it and warns that unsaved server work can be lost.
+health endpoint, and leaves the target URL closed. After this Widget instance
+starts the process, the same menu becomes **Stop server...** while that tracked
+process tree is live. Stop requires explicit confirmation and warns that
+unsaved server work can be lost. If no start target is saved, the menu shows
+**Configure server restart...** and opens the shortcut editor. An online server
+that this Widget instance did not start remains visible as online but cannot be
+stopped by the Widget.
 
 Workspace Widget does not reserve product names, IDs, ports, source layouts, or
 database contracts. A server card is restartable only from its saved generic
@@ -158,11 +161,11 @@ step that requires the exact Partner Center Product identity:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
-  -Version 0.1.3 `
+  -Version 0.1.4 `
   -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
-  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.3 `
+  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.4 `
   -StoreSubmission
 ```
 
@@ -175,7 +178,7 @@ Do not sideload or distribute the unsigned producer file.
 
 `Version` is the application release label. `PackageVersion` is the four-part
 Microsoft Store package identity version. Store packages require a nonzero first
-segment and reserve the fourth segment as `0`, so the `0.1.3` release candidate
+segment and reserve the fourth segment as `0`, so the `0.1.4` release candidate
 uses package version `1.0.0.0`.
 
 ## Verify

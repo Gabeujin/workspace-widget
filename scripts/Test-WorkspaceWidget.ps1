@@ -242,6 +242,42 @@ $startupProbe = & powershell.exe `
   -StartupProbeHealth "http://127.0.0.1:$startupProbePort/health" `
   -StartupProbeArgs "$startupProbePort $startupProbeNonce" `
   -StartupProbeExpectedToken $startupProbeNonce | ConvertFrom-Json
+$packagePortListener = [System.Net.Sockets.TcpListener]::new(
+  [System.Net.IPAddress]::Loopback,
+  0
+)
+$packagePortListener.Start()
+$packageStartupProbePort = ([System.Net.IPEndPoint]$packagePortListener.LocalEndpoint).Port
+$packagePortListener.Stop()
+$packageStartupProbeNonce = [guid]::NewGuid().ToString('N')
+$packageStartupProbeRoot = Join-Path `
+  ([System.IO.Path]::GetTempPath()) `
+  "WorkspaceWidgetPackageProbe-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $packageStartupProbeRoot | Out-Null
+Copy-Item `
+  -LiteralPath $nodeFixture `
+  -Destination (Join-Path $packageStartupProbeRoot 'server.js')
+[ordered]@{
+  name = 'workspace-widget-package-lifecycle-probe'
+  private = $true
+  scripts = [ordered]@{
+    start = "node server.js $packageStartupProbePort $packageStartupProbeNonce"
+  }
+} | ConvertTo-Json -Depth 4 | Set-Content `
+  -LiteralPath (Join-Path $packageStartupProbeRoot 'package.json') `
+  -Encoding UTF8
+$packageStartupProbe = & powershell.exe `
+  -NoProfile `
+  -NonInteractive `
+  -STA `
+  -ExecutionPolicy Bypass `
+  -File $runtimeAppScript `
+  -ProjectRoot $runtimeProjectRoot `
+  -StartupProbe `
+  -StartupProbeTarget $packageStartupProbeRoot `
+  -StartupProbeHealth "http://127.0.0.1:$packageStartupProbePort/health" `
+  -StartupProbeArgs 'start' `
+  -StartupProbeExpectedToken $packageStartupProbeNonce | ConvertFrom-Json
 $shortcutProbe = & powershell.exe `
   -NoProfile `
   -NonInteractive `
@@ -855,18 +891,35 @@ $checks = [ordered]@{
   healthAndNodeStartup = $startupProbe.success -and
     $startupProbe.statusCode -eq 200 -and
     [bool]$startupProbe.expectedTokenMatched -and
+    [bool]$startupProbe.trackedBeforeStop -and
+    [bool]$startupProbe.stopSucceeded -and
+    [bool]$startupProbe.processExitedAfterStop -and
+    [bool]$startupProbe.trackedRemoved -and
     [string]$startupProbe.health -eq "http://127.0.0.1:$startupProbePort/health" -and
     $startupProbe.bundledNodeVersion -match '^v\d+\.' -and
     $appContent -match 'Queue-NodeStartAndOpen' -and
     $appContent -match 'Get-NodePackageScript'
+  packageRunnerLifecycle = $packageStartupProbe.success -and
+    $packageStartupProbe.statusCode -eq 200 -and
+    [bool]$packageStartupProbe.expectedTokenMatched -and
+    [bool]$packageStartupProbe.trackedBeforeStop -and
+    [bool]$packageStartupProbe.stopSucceeded -and
+    [bool]$packageStartupProbe.processExitedAfterStop -and
+    [bool]$packageStartupProbe.trackedRemoved -and
+    [string]$packageStartupProbe.health -eq "http://127.0.0.1:$packageStartupProbePort/health"
   offlineServerRecovery = $appContent -match 'function Queue-NodeServerRecovery' -and
     $appContent -match 'function Update-ServerRecoveryMenuItem' -and
+    $appContent -match 'function Invoke-ServerLifecycleMenuAction' -and
+    $appContent -match 'function Test-TrackedLocalServer' -and
     $appContent -match "Header 'Check and restart server'" -and
     $appContent -match "Header 'Configure server restart\.\.\.'" -and
+    $appContent -match '\$MenuItem\.Header = ''Stop server\.\.\.''' -and
     $appContent -match '\$MenuItem\.Header = if \(\$healthKnown\) \{ ''Restart server'' \}' -and
     $appContent -match '\$MenuItem\.IsEnabled = \$false' -and
     $appContent -match 'openWhenHealthy = \$OpenWhenHealthy' -and
-    $appContent -match 'Stop-TrackedLocalServer -Item \$pendingOpen\.item -ConfirmForce' -and
+    $appContent -match 'Stop-TrackedLocalServer -Item \$pendingOpen\.item -ConfirmForce -AllowMissing' -and
+    $appContent -match 'Stop-TrackedLocalServer -Item \$Item -ConfirmForce\)' -and
+    $appContent -match 'return \[bool\]\$AllowMissing' -and
     $appContent -match 'function Stop-ProcessTree' -and
     $appContent -match 'Unsaved server work may be lost'
   productAgnosticServerLifecycle = $appContent -notmatch $productSpecificLifecyclePattern -and
@@ -1196,6 +1249,7 @@ $failed = @($checks.GetEnumerator() | Where-Object { -not $_.Value })
   probe = $probe
   semanticIconProbe = $semanticIconProbe
   startupProbe = $startupProbe
+  packageStartupProbe = $packageStartupProbe
   shortcutProbe = $shortcutProbe
   geometryProbe = $geometryProbe
   stateRecoveryProbe = $stateRecoveryProbe

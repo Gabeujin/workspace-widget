@@ -84,9 +84,12 @@ fallbacks exist only for unpackaged source development.
 It does not run `npm install`, resolve missing dependencies, or execute a
 package script merely because a project is discovered. Package scripts still
 run with the signed-in user's permissions and remain inside the user's trust
-boundary. An offline restart never kills a process merely because it owns the
-configured port. If the current widget instance still owns a live process tree,
-it requires explicit confirmation before force-stopping that tree.
+boundary. Restart and Stop never kill a process merely because it owns the
+configured port. Stop is enabled only while the current Widget instance owns a
+live process handle that it created, and it requires explicit confirmation
+before force-stopping that process tree. An online but unowned server remains
+non-stoppable, so stale health state or a reused port cannot target an unrelated
+process.
 
 The local-server lifecycle is product-agnostic. It does not reserve application
 IDs, ports, source layouts, API versions, database contracts, or product-owned

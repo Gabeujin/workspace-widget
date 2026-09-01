@@ -3,7 +3,7 @@
 All notable changes to Workspace Widget are documented in this file.
 
 The project follows semantic versioning for release artifacts. The current
-0.1.3 build is a development preview and has not passed Microsoft Store
+0.1.4 build is a development preview and has not passed Microsoft Store
 certification.
 
 ## Unreleased
@@ -53,6 +53,10 @@ certification.
   hash validation.
 - Package-directory startup now prefers pnpm when available and falls back to
   the bundled npm runner.
+- A health-checked server card now exposes **Stop server...** only while the
+  current Widget instance owns the live process tree it started. Online but
+  unowned servers remain non-stoppable, while offline cards retain the generic
+  restart action.
 - The responsive toolbar switches to icon-only controls below 500 px, and
   shortcut cards and toolbar controls expose visible keyboard focus.
 - Updated the bundled Node.js runtime to 24.19.0 LTS and the pinned WebView2 SDK
@@ -81,8 +85,9 @@ certification.
 - Added strict absolute URL validation, embedded-credential rejection,
   loopback-only health endpoints for automatic Node startup, and execution-time
   validation of local Node paths and arguments.
-- Offline restart now confirms before force-stopping a widget-owned process tree
-  and stops descendants together to prevent wrapper orphaning.
+- Restart and Stop now confirm before force-stopping a Widget-owned process tree
+  and stop descendants together to prevent wrapper orphaning. The lifecycle
+  probe verifies tracking, termination, and handle removal end to end.
 - Added state, shortcut, log, local image/GIF, and managed cache resource limits;
   unknown future state schemas fail closed.
 - Added a 30-day expiring official-security baseline and CI gate for Node.js,

@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.3',
+  [string]$Version = '0.1.4',
   [string]$OutputRoot,
   [switch]$RequireInstaller,
   [switch]$RequireSigned,
