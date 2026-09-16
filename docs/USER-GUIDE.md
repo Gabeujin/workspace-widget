@@ -196,6 +196,8 @@ active display work area, such as after disconnecting a monitor.
 ### Opacity and hover brightness
 
 Open **Settings** to choose a resting window opacity from 35 to 100 percent.
+Full and MIN UI modes share this value. On upgrade from separate mode settings,
+the last active mode's value is retained; changing layout does not reset it.
 When **Settings > Hover brightness** is enabled, moving the pointer over the
 widget temporarily raises it to full opacity.
 
@@ -245,7 +247,7 @@ MIN UI:
 
 - shows shortcuts as icons;
 - hides secondary labels and controls;
-- uses the saved compact-mode opacity;
+- uses the same resting opacity as full mode;
 - suppresses hover-media previews; and
 - supports optional edge snapping when released near a screen edge.
 

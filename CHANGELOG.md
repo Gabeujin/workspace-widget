@@ -16,6 +16,9 @@ certification.
   keep Start and Stop separate without adopting foreign port listeners.
 - Unify opacity and settings in an independently sized Korean/English dialog.
   Preserve readable collapsed, selected, hover and keyboard-focus colors.
+- Share resting opacity across full and MIN modes, preserving the last active
+  legacy mode's setting on upgrade. Stage content during bounds transitions so
+  full-size cards are not exposed inside the narrow icon rail.
 - Expand the original semantic icon library to 18 choices and add file pickers
   for custom icons, local hover media and lifecycle scripts.
 - Add reduced-motion-aware, interruptible compact/full transitions, a dedicated

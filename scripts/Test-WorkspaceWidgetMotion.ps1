@@ -103,30 +103,35 @@ function Import-CurrentWidgetFunction {
 
 Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase, System.Windows.Forms
 $script:assertions = 0
+$script:dispatcherFailure=$null
+[System.Windows.Threading.Dispatcher]::CurrentDispatcher.add_UnhandledException({
+  param($sender,$eventArgs)
+  $script:dispatcherFailure=$eventArgs.Exception.ToString()
+  [Console]::Error.WriteLine($script:dispatcherFailure)
+  $eventArgs.Handled=$true
+})
 
 # These assertions intentionally cover the integration source that cannot be
 # dot-sourced safely: WorkspaceWidget.ps1 contains application bootstrap code.
 $widgetSource = Get-Content -LiteralPath $widgetPath -Raw -Encoding utf8
 foreach ($claim in @(
-  'BeginAnimation\(\$dp,\$null\)',
-  '\$script:widgetTransitionTarget=\$null',
+  'Supersede-WidgetBoundsTransition',
   'GetAnimationBaseValue\(\[System\.Windows\.Window\]::LeftProperty\)',
   'GetAnimationBaseValue\(\[System\.Windows\.Window\]::WidthProperty\)',
-  'Start-WidgetBoundsTransition -FromLeft',
+  'Start-WidgetBoundsTransition',
   'Get-WidgetWorkingArea',
-  'modeWorkArea\.right-\$script:window\.Width'
+  'TargetWidth',
+  'OnCommitted'
 )) {
   Assert-That ($widgetSource -match $claim) "Static motion/restore contract was not found: $claim"
 }
-$restoreIndex=$widgetSource.IndexOf('$script:window.SetValue($dp,[double]$script:widgetTransitionTarget[$property])')
-$clearIndex=$widgetSource.IndexOf('$script:widgetTransitionTarget=$null')
-$newTargetIndex=$widgetSource.IndexOf('Start-WidgetBoundsTransition -FromLeft')
-Assert-That ($restoreIndex -ge 0 -and $restoreIndex -lt $clearIndex -and $clearIndex -lt $newTargetIndex) `
-  'Set-MinUiMode no longer restores and clears an interrupted target before creating the new mode target.'
 
 # WidgetExperience has no bootstrap side effects, so test its real WPF helpers.
 . $experiencePath
 Import-CurrentWidgetFunction -Path $widgetPath -Name 'Set-MinUiMode'
+Import-CurrentWidgetFunction -Path $widgetPath -Name 'Set-WidgetTransitionContentStage'
+Import-CurrentWidgetFunction -Path $widgetPath -Name 'Set-WidgetModeVisualState'
+Import-CurrentWidgetFunction -Path $widgetPath -Name 'Complete-WidgetModeTransition'
 
 $script:state = [pscustomobject]@{
   window = [pscustomobject]@{ language = 'en-US'; reduceMotion = $false }
@@ -138,6 +143,7 @@ Assert-That ($null -ne (Get-Variable -Name widgetTransitionTarget -Scope Script 
   'Production experience helpers must initialize transition target before the first UI click.'
 $script:saveCalls = 0
 function Save-State { $script:saveCalls++ }
+function Write-RuntimeLog { param([string]$Message) }
 
 # Preserve the production reduce-motion guard as a source-level contract, then
 # force the otherwise real transition helper in this isolated WPF unit fixture.
@@ -147,6 +153,10 @@ Assert-That ($experienceSource -match 'Test-WidgetMotionEnabled\) -or -not \$scr
 function Test-WidgetMotionEnabled { return -not [bool]$script:state.window.reduceMotion }
 
 $window = [System.Windows.Window]::new()
+$window.WindowStyle='None'
+$window.AllowsTransparency=$true
+$window.MinWidth=96
+$window.MinHeight=320
 $window.ShowInTaskbar = $false
 $window.ShowActivated = $false
 $window.Opacity = 0
@@ -160,10 +170,16 @@ try {
   $window.Show()
   Invoke-DispatcherFor 30
   $expected = Get-WindowBaseValues $window
+  $window.Left=48; $window.Top=32; $window.Width=96; $window.Height=320
+  Invoke-DispatcherFor 30
 
   # Reversing while the first transition is pending must cancel the old timer,
   # retain the base geometry, and leave no animation value after the second ends.
-  Start-WidgetBoundsTransition -FromLeft 48 -FromTop 32 -FromWidth 96 -FromHeight 320
+  $script:commitCalls=0
+  $commit={ $script:commitCalls++; Save-State }
+  Start-WidgetBoundsTransition -FromLeft 48 -FromTop 32 -FromWidth 96 -FromHeight 320 `
+    -TargetLeft $expected.Left -TargetTop $expected.Top -TargetWidth $expected.Width -TargetHeight $expected.Height -OnCommitted $commit
+  Assert-That ([math]::Abs($window.Width-96) -lt 2) 'The first transition frame jumped to destination width.'
   Invoke-DispatcherFor 35
   # A Window can write a rendered/native resize back to the DP base while its
   # animation clock is active. Inject that same base-value mutation explicitly
@@ -172,7 +188,8 @@ try {
   $baseDuringFirstTransition = Get-WindowBaseValues $window
   Assert-That ([math]::Abs($expected.Height - $baseDuringFirstTransition.Height) -gt 0.001) `
     'The active Window Height base value was not mutated for the reversal regression fixture.'
-  Start-WidgetBoundsTransition -FromLeft 86 -FromTop 50 -FromWidth 110 -FromHeight 340
+  Start-WidgetBoundsTransition -FromLeft 86 -FromTop 50 -FromWidth 110 -FromHeight 340 `
+    -TargetLeft $expected.Left -TargetTop $expected.Top -TargetWidth $expected.Width -TargetHeight $expected.Height -OnCommitted $commit
   $firstTransitionCompleted = Wait-ForBoundsTransitionCompletion -Window $window
   Invoke-DispatcherFor 100
   $actual = Get-WindowBaseValues $window
@@ -184,7 +201,7 @@ try {
   }
   Assert-That (-not $window.HasAnimatedProperties) 'The final bounds animation did not release its WPF animation clocks.'
   Assert-That ($script:saveCalls -eq 1) 'Reversed motion persisted more than the final transition.'
-  Assert-That ($null -ne $script:widgetTransition -and -not $script:widgetTransition.IsEnabled) `
+  Assert-That ($null -eq $script:widgetTransition -or -not $script:widgetTransition.IsEnabled) `
     'The final bounds-transition timer remained enabled.'
 
   # A rapid full -> MIN -> full change must discard the interrupted MIN target
@@ -192,12 +209,14 @@ try {
   $window.Width=430
   Invoke-DispatcherFor 20
   $script:state=[pscustomobject]@{window=[pscustomobject]@{
-    language='en-US'; reduceMotion=$false; left=300.0; top=180.0; width=430.0; height=580.0; opacity=1.0
-    minUiMode=$false; minUiLeft=300.0; minUiTop=180.0; minUiHeight=580.0; minUiOpacity=1.0
+    language='en-US'; reduceMotion=$false; edgeSnap=$false; left=300.0; top=180.0; width=430.0; height=580.0; opacity=0.57
+    minUiMode=$false; minUiLeft=300.0; minUiTop=180.0; minUiHeight=580.0; minUiOpacity=0.54
   }}
-  $script:minUiMode=$false; $script:minUiOpacity=1.0; $script:baseOpacity=1.0
+  $script:minUiMode=$false; $script:minUiOpacity=0.54; $script:baseOpacity=0.57
   $script:applyingUiMode=$false; $script:updatingAutostartCheck=$false
   $script:panelBorder=[System.Windows.Controls.Border]::new()
+  $script:contentGrid=[System.Windows.Controls.Grid]::new()
+  $window.Content=$script:contentGrid
   $script:fullHeaderIdentity=[System.Windows.Controls.Border]::new()
   $script:header=[System.Windows.Controls.Grid]::new()
   $script:toolbar=[System.Windows.Controls.StackPanel]::new()
@@ -217,15 +236,20 @@ try {
   function Update-ResponsiveHeader { }
   function Ensure-WindowVisible { param([string]$Reason,[switch]$Quiet) return $true }
   function Render-Items { }
-  function Update-WidgetOpacity { }
+  function Update-WidgetOpacity { param([switch]$ForceBase) }
   function Write-RuntimeLog { param([string]$Message) }
   $modeExpected=Get-WindowBaseValues $window
   Set-MinUiMode -Enabled $true
+  Assert-That ([math]::Abs($window.Width-$modeExpected.Width) -lt 2) 'MIN mode committed narrow width before its first animation frame.'
+  Assert-That ([math]::Abs($script:baseOpacity-0.57) -lt 0.001) 'Switching to MIN changed the shared opacity.'
+  Assert-That ($script:contentGrid.Opacity -eq 0 -and -not $script:contentGrid.IsHitTestVisible) 'Full cards remain exposed while shrinking into the rail.'
+  Assert-That ($script:header.Opacity -eq 0 -and $script:footer.Visibility -eq 'Collapsed') 'Full chrome remains exposed during the narrow transition.'
   Invoke-DispatcherFor 35
   Assert-That ([math]::Abs($modeExpected.Width-430.0) -lt 0.001 -and
     [math]::Abs($script:widgetTransitionTarget.Width-$script:minUiWidth) -lt 0.001) `
     'The MIN transition did not retain its actual narrow target before interruption.'
   Set-MinUiMode -Enabled $false
+  Assert-That ([math]::Abs($script:baseOpacity-0.57) -lt 0.001) 'Restoring full mode changed the shared opacity.'
   Assert-That ([math]::Abs($script:widgetTransitionTarget.Width-430.0) -lt 0.001 -and
     [math]::Abs($script:widgetTransitionTarget.Width-$modeExpected.Width) -lt 0.001 -and
     [math]::Abs($script:widgetTransitionTarget.Height-$modeExpected.Height) -lt 0.001) `
@@ -241,16 +265,33 @@ try {
   }
   Assert-That (-not $window.HasAnimatedProperties -and $null -eq $script:widgetTransitionTarget) `
     'Rapid MIN/full change left an animation clock or stale transition target.'
+  Invoke-DispatcherFor 150
+  Assert-That ([math]::Abs($script:contentGrid.Opacity-1) -lt 0.001 -and $script:contentGrid.IsHitTestVisible) `
+    'Committed layout was not revealed and made interactive.'
+  Assert-That ($script:header.Opacity -eq 1 -and $script:footer.Visibility -eq 'Visible') 'Full chrome was not restored after completion.'
+
+  $savesBeforeDeadline=$script:saveCalls
+  Set-MinUiMode -Enabled $true
+  Complete-WidgetBoundsTransition -Settled:$false -Reason 'settle deadline' | Out-Null
+  Invoke-DispatcherFor 50
+  Assert-That ($script:saveCalls -eq ($savesBeforeDeadline+1)) 'Deadline fallback committed visible mode without persisting it.'
+  Assert-That ($script:minUiMode -and [math]::Abs($window.Width-96) -lt 0.001) 'Deadline fallback did not restore explicit MIN bounds.'
+  $script:state.window.reduceMotion=$true
+  Set-MinUiMode -Enabled $false
+  Assert-That ($null -eq $script:widgetTransitionTarget -and [math]::Abs($window.Width-430) -lt 0.001) 'Reduced-motion mode change did not commit directly.'
+  $script:state.window.reduceMotion=$false
 
   # A reduce-motion change while a transition is active must cancel the owned
   # timer, restore the captured base once, and never persist an intermediate
   # native Window value.
   $cancelExpected=Get-WindowBaseValues $window
   $saveCallsBeforeCancel=$script:saveCalls
-  Start-WidgetBoundsTransition -FromLeft 86 -FromTop 50 -FromWidth 110 -FromHeight 340
+  $script:commitCalls=0
+  Start-WidgetBoundsTransition -FromLeft 86 -FromTop 50 -FromWidth 110 -FromHeight 340 `
+    -TargetLeft $cancelExpected.Left -TargetTop $cancelExpected.Top -TargetWidth $cancelExpected.Width -TargetHeight $cancelExpected.Height -OnCommitted { $script:commitCalls++ }
   Invoke-DispatcherFor 35
   $script:state.window.reduceMotion=$true
-  Start-WidgetBoundsTransition -FromLeft 86 -FromTop 50 -FromWidth 110 -FromHeight 340
+  Cancel-WidgetBoundsTransition -Reason 'reduce motion test' | Out-Null
   Invoke-DispatcherFor 40
   $cancelActual=Get-WindowBaseValues $window
   foreach($property in $cancelExpected.Keys){
@@ -261,6 +302,8 @@ try {
     ($null -eq $script:widgetTransition -or -not $script:widgetTransition.IsEnabled) -and
     -not $window.HasAnimatedProperties) 'Reduced-motion cancellation left a transition resource active.'
   Assert-That ($script:saveCalls -eq $saveCallsBeforeCancel) 'Reduced-motion cancellation persisted an interrupted transition.'
+  Assert-That ($script:commitCalls -eq 1) 'Reduced-motion cancellation must commit final layout exactly once.'
+  Assert-That ($null -eq $script:dispatcherFailure) 'A dispatcher callback failed during the motion regression.'
   $script:state.window.reduceMotion=$false
 
   # Dynamic localization is executed against the actual tree helper, including

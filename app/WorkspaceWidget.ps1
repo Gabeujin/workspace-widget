@@ -2368,6 +2368,12 @@ function Read-State {
 
 function Save-State {
   try {
+    $activeTransition=Get-Variable -Name widgetTransitionTarget -Scope Script -ErrorAction SilentlyContinue
+    if($null -ne $activeTransition -and $null -ne $activeTransition.Value){
+      # A timer queued before a visual mode change must never serialize a
+      # presentation-frame geometry while its target is still in flight.
+      return $false
+    }
     if (-not (Test-Path -LiteralPath $runtimeRoot)) {
       New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
     }
@@ -2377,14 +2383,16 @@ function Save-State {
       $script:state.window.minUiLeft = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::LeftProperty), 1)
       $script:state.window.minUiTop = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::TopProperty), 1)
       $script:state.window.minUiHeight = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::HeightProperty), 1)
-      $script:state.window.minUiOpacity = [math]::Round([double]$script:baseOpacity, 2)
     } else {
       $script:state.window.left = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::LeftProperty), 1)
       $script:state.window.top = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::TopProperty), 1)
       $script:state.window.width = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::WidthProperty), 1)
       $script:state.window.height = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::HeightProperty), 1)
-      $script:state.window.opacity = [math]::Round([double]$script:baseOpacity, 2)
     }
+    # `minUiOpacity` is a retained compatibility alias. Opacity is shared
+    # across workspace modes, so persist both names identically.
+    $script:state.window.opacity = [math]::Round([double]$script:baseOpacity, 2)
+    $script:state.window.minUiOpacity = [double]$script:state.window.opacity
     $script:state.window.hoverBrightness = [bool]$script:hoverBrightness
     $script:state.window.alwaysOnTop = [bool]$script:alwaysOnTop
     $script:state.window.attachToDesktop = [bool]$script:attachToDesktopPreference
@@ -8051,17 +8059,32 @@ if ($StateLifecycleProbe) {
   } | ConvertTo-Json -Depth 4
   exit 0
 }
+function Initialize-WidgetSharedOpacity {
+  param($WindowState,[bool]$IsMinUi)
+
+  $fullOpacity=[math]::Max(0.35,[math]::Min(1.0,[double]$WindowState.opacity))
+  $minOpacity=[math]::Max(0.35,[math]::Min(1.0,[double]$WindowState.minUiOpacity))
+  $alreadyMigrated=(
+    $WindowState.PSObject.Properties.Name -contains 'sharedOpacityVersion' -and
+    [int]$WindowState.sharedOpacityVersion -ge 1
+  )
+  # On the first shared-opacity load, retain the value the person can see now.
+  # Later loads use the canonical field while still mirroring the legacy alias.
+  $resolved=if($alreadyMigrated){$fullOpacity}elseif($IsMinUi){$minOpacity}else{$fullOpacity}
+  $WindowState.opacity=$resolved
+  $WindowState.minUiOpacity=$resolved
+  if($WindowState.PSObject.Properties.Name -notcontains 'sharedOpacityVersion'){
+    $WindowState | Add-Member -NotePropertyName sharedOpacityVersion -NotePropertyValue 1
+  } else {
+    $WindowState.sharedOpacityVersion=1
+  }
+  return $resolved
+}
+
 $script:minUiMode = [bool]$script:state.window.minUiMode
 $script:minUiWidth = 96.0
-$script:minUiOpacity = [math]::Max(
-  0.35,
-  [math]::Min(1.0, [double]$script:state.window.minUiOpacity)
-)
-$script:baseOpacity = if ($script:minUiMode) {
-  $script:minUiOpacity
-} else {
-  [math]::Max(0.35, [math]::Min(1.0, [double]$script:state.window.opacity))
-}
+$script:baseOpacity=Initialize-WidgetSharedOpacity -WindowState $script:state.window -IsMinUi $script:minUiMode
+$script:minUiOpacity=$script:baseOpacity
 $script:hoverBrightness = [bool]$script:state.window.hoverBrightness
 $script:alwaysOnTop = [bool]$script:state.window.alwaysOnTop
 $script:attachToDesktopPreference = [bool]$script:state.window.attachToDesktop
@@ -8971,162 +8994,195 @@ function Update-ResponsiveHeader {
   }
 }
 
+function Set-WidgetTransitionContentStage {
+  param([bool]$Staged)
+
+  $contentGridVariable=Get-Variable -Name contentGrid -Scope Script -ErrorAction SilentlyContinue
+  $contentGrid=if($null -eq $contentGridVariable){$null}else{$contentGridVariable.Value}
+  $headerVariable=Get-Variable -Name header -Scope Script -ErrorAction SilentlyContinue
+  $header=if($null -eq $headerVariable){$null}else{$headerVariable.Value}
+  if($null -ne $header){$header.BeginAnimation([System.Windows.UIElement]::OpacityProperty,$null)}
+  if($null -ne $contentGrid){$contentGrid.BeginAnimation([System.Windows.UIElement]::OpacityProperty,$null)}
+  if($Staged){
+    if($null -ne $header){$header.Opacity=0}
+    if($null -ne $contentGrid){$contentGrid.Opacity=0; $contentGrid.IsHitTestVisible=$false}
+    if($null -ne $script:footer){$script:footer.Visibility=[System.Windows.Visibility]::Collapsed}
+    return
+  }
+  if($null -ne $header){$header.Opacity=1}
+  if($null -eq $contentGrid){return}
+  $contentGrid.IsHitTestVisible=$true
+  if((Test-WidgetMotionEnabled) -and $script:window.IsVisible){
+    $contentGrid.Opacity=1
+    $fade=[System.Windows.Media.Animation.DoubleAnimation]::new(0.0,1.0,[System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(120)))
+    $fade.FillBehavior='Stop'
+    $contentGrid.BeginAnimation([System.Windows.UIElement]::OpacityProperty,$fade,[System.Windows.Media.Animation.HandoffBehavior]::SnapshotAndReplace)
+  } else {
+    $contentGrid.Opacity=1
+  }
+}
+
+function Set-WidgetModeVisualState {
+  param([bool]$Enabled)
+
+  if($Enabled){
+    $script:panelBorder.Padding=[System.Windows.Thickness]::new(8)
+    $script:panelBorder.CornerRadius=[System.Windows.CornerRadius]::new(14)
+    $script:fullHeaderIdentity.Visibility=[System.Windows.Visibility]::Collapsed
+    $script:header.Margin=[System.Windows.Thickness]::new(0,0,0,6)
+    [System.Windows.Controls.Grid]::SetColumn($script:toolbar,0)
+    [System.Windows.Controls.Grid]::SetColumnSpan($script:toolbar,2)
+    $script:toolbar.Width=78; $script:toolbar.HorizontalAlignment=[System.Windows.HorizontalAlignment]::Center
+    Set-ToolbarCompactMode -Compact $true
+    $script:opacityPanel.Visibility=[System.Windows.Visibility]::Collapsed
+    $script:settingsPanel.Visibility=[System.Windows.Visibility]::Collapsed
+    $script:footer.Visibility=[System.Windows.Visibility]::Collapsed
+    $script:pageDotsPanel.Visibility=[System.Windows.Visibility]::Collapsed
+    $script:resizeHandle.Visibility=[System.Windows.Visibility]::Collapsed
+    $script:dropText.Text='+'; $script:dropText.FontSize=28
+    $script:minUiModeButton.ToolTip='Restore full Workspace'
+    [System.Windows.Automation.AutomationProperties]::SetName($script:minUiModeButton,'Restore full Workspace')
+  } else {
+    $script:panelBorder.Padding=[System.Windows.Thickness]::new(20)
+    $script:panelBorder.CornerRadius=[System.Windows.CornerRadius]::new(14)
+    $script:fullHeaderIdentity.Visibility=[System.Windows.Visibility]::Visible
+    $script:header.Margin=[System.Windows.Thickness]::new(0,0,0,12)
+    [System.Windows.Controls.Grid]::SetColumn($script:toolbar,1)
+    [System.Windows.Controls.Grid]::SetColumnSpan($script:toolbar,1)
+    $script:toolbar.Width=[double]::NaN; $script:toolbar.HorizontalAlignment=[System.Windows.HorizontalAlignment]::Right
+    Set-ToolbarCompactMode -Compact $false
+    $script:footer.Visibility=[System.Windows.Visibility]::Visible
+    $script:pageDotsPanel.Visibility=[System.Windows.Visibility]::Visible
+    $script:resizeHandle.Visibility=[System.Windows.Visibility]::Visible
+    $script:dropText.Text='Drop to add'; $script:dropText.FontSize=26
+    $script:minUiModeButton.ToolTip='Switch to MIN UI'
+    [System.Windows.Automation.AutomationProperties]::SetName($script:minUiModeButton,'Switch to MIN UI')
+  }
+  if($script:minUiModeCheck.IsChecked -ne $Enabled){$script:minUiModeCheck.IsChecked=$Enabled}
+  Set-WidgetLocalizedTree $script:toolbar
+  Update-ResponsiveHeader
+}
+
+function Complete-WidgetModeTransition {
+  param([bool]$Settled,[string]$Reason)
+
+  $context=$script:widgetModeTransitionContext
+  if($null -eq $context){return}
+  $Enabled=[bool]$context.Enabled
+  $Initial=[bool]$context.Initial
+  $script:widgetModeTransitionContext=$null
+
+  $script:window.MinWidth=if($Enabled){$script:minUiWidth}else{430}
+  $script:window.MaxWidth=if($Enabled){$script:minUiWidth}else{1000}
+  Set-WidgetModeVisualState -Enabled $Enabled
+  $visibilityReason=if($Initial){'initial mode restore'}else{'ui mode transition'}
+  Ensure-WindowVisible -Reason $visibilityReason -Quiet | Out-Null
+  if($script:window.IsLoaded){
+    Render-Items
+    Update-WidgetOpacity -ForceBase
+    Set-WidgetTransitionContentStage -Staged $false
+    # The bounds helper has committed its explicit target and cleared the
+    # in-flight guard. Persist that target even when compositor settling timed out.
+    Save-State | Out-Null
+    Write-RuntimeLog "MIN UI mode changed. enabled=$Enabled settled=$Settled width=$([math]::Round($script:window.Width)) reason=$Reason"
+  }
+}
+
 function Set-MinUiMode {
   param(
     [bool]$Enabled,
     [switch]$Initial
   )
 
-  if ($script:applyingUiMode) {
-    return
-  }
-  if (-not $Initial -and $script:minUiMode -eq $Enabled) {
-    return
-  }
+  if($script:applyingUiMode){return}
+  if(-not $Initial -and $script:minUiMode -eq $Enabled){return}
 
-  $script:applyingUiMode = $true
-  $previousAutostartGuard = $script:updatingAutostartCheck
-  $oldBounds = @($script:window.Left, $script:window.Top, $script:window.ActualWidth, $script:window.ActualHeight)
-  $modeWorkArea = Get-WidgetWorkingArea
-  if($null -ne $script:widgetTransition){$script:widgetTransition.Stop()}
-  foreach($property in @('Left','Top','Width','Height')) {
-    $dp=[System.Windows.Window]::("${property}Property")
-    $script:window.BeginAnimation($dp,$null)
-    if($null -ne $script:widgetTransitionTarget){
-      $script:window.SetValue($dp,[double]$script:widgetTransitionTarget[$property])
-    }
-  }
-  $script:widgetTransitionTarget=$null
-  $script:updatingAutostartCheck = $true
+  $script:applyingUiMode=$true
+  $previousAutostartGuard=$script:updatingAutostartCheck
+  $script:updatingAutostartCheck=$true
   try {
-    $previouslyMinUi = [bool]$script:minUiMode
-    $anchorCenter = $script:window.Left + ($script:window.Width / 2.0)
-
-    if ($Enabled) {
-      if (-not $previouslyMinUi) {
-        $script:state.window.left = [math]::Round($script:window.Left, 1)
-        $script:state.window.top = [math]::Round($script:window.Top, 1)
-        $script:state.window.width = [math]::Round($script:window.Width, 1)
-        $script:state.window.height = [math]::Round($script:window.Height, 1)
-        $script:state.window.opacity = [math]::Round([double]$script:baseOpacity, 2)
+    foreach($timerName in @('saveTimer','minUiSnapTimer')){
+      $timerVariable=Get-Variable -Name $timerName -Scope Script -ErrorAction SilentlyContinue
+      if($null -ne $timerVariable -and $null -ne $timerVariable.Value){$timerVariable.Value.Stop()}
+    }
+    $hadTransition=$null -ne $script:widgetTransitionTarget
+    if($hadTransition){Supersede-WidgetBoundsTransition | Out-Null}
+    $from=[ordered]@{}
+    foreach($property in @('Left','Top','Width','Height')){
+      $dp=[System.Windows.Window]::("${property}Property")
+      $from[$property]=[double]$script:window.GetValue($dp)
+    }
+    $previouslyMinUi=[bool]$script:minUiMode
+    $modeWorkArea=Get-WidgetWorkingArea
+    $target=[ordered]@{}
+    if($Enabled){
+      if(-not $previouslyMinUi -and -not $hadTransition){
+        $script:state.window.left=[math]::Round($from.Left,1)
+        $script:state.window.top=[math]::Round($from.Top,1)
+        $script:state.window.width=[math]::Round($from.Width,1)
+        $script:state.window.height=[math]::Round($from.Height,1)
       }
-
-      $script:minUiMode = $true
-      $script:state.window.minUiMode = $true
-      $script:baseOpacity = $script:minUiOpacity
-      $script:window.MinWidth = $script:minUiWidth
-      $script:window.MaxWidth = $script:minUiWidth
-      $script:window.Width = $script:minUiWidth
-      $workArea = Get-WidgetWorkingArea
-      $maximumMinHeight = [math]::Max(320, $workArea.height - 16)
-      $requestedMinHeight = if ($Initial) {
-        [double]$script:state.window.minUiHeight
+      $script:minUiMode=$true; $script:state.window.minUiMode=$true
+      $target.Width=$script:minUiWidth
+      $maximumMinHeight=[math]::Max(320,$modeWorkArea.height-16)
+      $requestedMinHeight=if($Initial){[double]$script:state.window.minUiHeight}else{$from.Height}
+      $target.Height=[math]::Max(320,[math]::Min($maximumMinHeight,$requestedMinHeight))
+      if($Initial){
+        $target.Left=[double]$script:state.window.minUiLeft
+        $target.Top=[double]$script:state.window.minUiTop
       } else {
-        [double]$script:window.Height
+        $leftDistance=[math]::Abs($from.Left-$modeWorkArea.left)
+        $rightDistance=[math]::Abs($modeWorkArea.right-($from.Left+$from.Width))
+        $target.Left=if($script:state.window.edgeSnap){
+          if($leftDistance -le $rightDistance){$modeWorkArea.left+8}else{$modeWorkArea.right-$target.Width-8}
+        }else{
+          $from.Left+($from.Width-$target.Width)/2.0
+        }
+        $target.Top=$from.Top
       }
-      $script:window.Height = [math]::Max(
-        320,
-        [math]::Min($maximumMinHeight, $requestedMinHeight)
-      )
-      if ($Initial) {
-        $script:window.Left = [double]$script:state.window.minUiLeft
-        $script:window.Top = [double]$script:state.window.minUiTop
-        $anchorCenter = $script:window.Left + ($script:minUiWidth / 2.0)
-      }
-
-      $script:panelBorder.Padding = [System.Windows.Thickness]::new(8)
-      $script:panelBorder.CornerRadius = [System.Windows.CornerRadius]::new(14)
-      $script:fullHeaderIdentity.Visibility = [System.Windows.Visibility]::Collapsed
-      $script:header.Margin = [System.Windows.Thickness]::new(0, 0, 0, 6)
-      [System.Windows.Controls.Grid]::SetColumn($script:toolbar, 0)
-      [System.Windows.Controls.Grid]::SetColumnSpan($script:toolbar, 2)
-      $script:toolbar.Width = 78
-      $script:toolbar.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
-      Set-ToolbarCompactMode -Compact $true
-      $script:opacityPanel.Visibility = [System.Windows.Visibility]::Collapsed
-      $script:settingsPanel.Visibility = [System.Windows.Visibility]::Collapsed
-      $script:footer.Visibility = [System.Windows.Visibility]::Collapsed
-      $script:pageDotsPanel.Visibility = [System.Windows.Visibility]::Collapsed
-      $script:resizeHandle.Visibility = [System.Windows.Visibility]::Collapsed
-      $script:dropText.Text = '+'
-      $script:dropText.FontSize = 28
-      $script:minUiModeButton.ToolTip = 'Restore full Workspace'
-      [System.Windows.Automation.AutomationProperties]::SetName(
-        $script:minUiModeButton,
-        'Restore full Workspace'
-      )
-      Snap-MinUiToNearestEdge -AnchorCenter $anchorCenter
     } else {
-      if ($previouslyMinUi) {
-        $script:state.window.minUiLeft = [math]::Round($script:window.Left, 1)
-        $script:state.window.minUiTop = [math]::Round($script:window.Top, 1)
-        $script:state.window.minUiHeight = [math]::Round($script:window.Height, 1)
-        $script:state.window.minUiOpacity = [math]::Round([double]$script:baseOpacity, 2)
-        $script:minUiOpacity = [double]$script:state.window.minUiOpacity
+      if($previouslyMinUi -and -not $hadTransition){
+        $script:state.window.minUiLeft=[math]::Round($from.Left,1)
+        $script:state.window.minUiTop=[math]::Round($from.Top,1)
+        $script:state.window.minUiHeight=[math]::Round($from.Height,1)
       }
-
-      $script:minUiMode = $false
-      $script:state.window.minUiMode = $false
-      $script:baseOpacity = [math]::Max(
-        0.35,
-        [math]::Min(1.0, [double]$script:state.window.opacity)
-      )
-      $script:window.MaxWidth = 1000
-      $script:window.MinWidth = 430
-      $script:window.Width = [math]::Max(430, [double]$script:state.window.width)
-      $script:window.Height = [math]::Max(500, [double]$script:state.window.height)
-      $script:window.Left = [double]$script:state.window.left
-      $script:window.Top = [double]$script:state.window.top
-      if($previouslyMinUi -and -not $Initial) {
-        # Expand on the monitor where the rail is now, not its historic full-mode monitor.
-        $script:window.Left=[math]::Max($modeWorkArea.left,[math]::Min($oldBounds[0],$modeWorkArea.right-$script:window.Width))
-        $script:window.Top=[math]::Max($modeWorkArea.top,[math]::Min($oldBounds[1],$modeWorkArea.bottom-$script:window.Height))
+      $script:minUiMode=$false; $script:state.window.minUiMode=$false
+      $target.Width=[math]::Max(430,[double]$script:state.window.width)
+      $target.Height=[math]::Max(500,[double]$script:state.window.height)
+      $target.Left=[double]$script:state.window.left
+      $target.Top=[double]$script:state.window.top
+      if($previouslyMinUi -and -not $Initial){
+        # Restore on the monitor holding the rail, not its historic full-mode display.
+        $target.Left=if($script:state.window.edgeSnap){
+          $from.Left
+        }else{
+          $from.Left+($from.Width-$target.Width)/2.0
+        }
+        $target.Top=$from.Top
       }
-
-      $script:panelBorder.Padding = [System.Windows.Thickness]::new(20)
-      $script:panelBorder.CornerRadius = [System.Windows.CornerRadius]::new(14)
-      $script:fullHeaderIdentity.Visibility = [System.Windows.Visibility]::Visible
-      $script:header.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
-      [System.Windows.Controls.Grid]::SetColumn($script:toolbar, 1)
-      [System.Windows.Controls.Grid]::SetColumnSpan($script:toolbar, 1)
-      $script:toolbar.Width = [double]::NaN
-      $script:toolbar.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
-      Set-ToolbarCompactMode -Compact $false
-      $script:footer.Visibility = [System.Windows.Visibility]::Visible
-      $script:pageDotsPanel.Visibility = [System.Windows.Visibility]::Visible
-      $script:resizeHandle.Visibility = [System.Windows.Visibility]::Visible
-      $script:dropText.Text = 'Drop to add'
-      $script:dropText.FontSize = 26
-      $script:minUiModeButton.ToolTip = 'Switch to MIN UI'
-      [System.Windows.Automation.AutomationProperties]::SetName(
-        $script:minUiModeButton,
-        'Switch to MIN UI'
-      )
     }
-
-    if ($script:minUiModeCheck.IsChecked -ne $Enabled) {
-      $script:minUiModeCheck.IsChecked = $Enabled
+    $target.Left=[math]::Max($modeWorkArea.left,[math]::Min($target.Left,$modeWorkArea.right-$target.Width))
+    $target.Top=[math]::Max($modeWorkArea.top,[math]::Min($target.Top,$modeWorkArea.bottom-$target.Height))
+    if($script:window.IsLoaded -and -not $Initial){
+      # Compact/reflow chrome before the first resize frame, then keep it hidden
+      # until the final bounds are committed so full cards never render in a rail.
+      Set-WidgetModeVisualState -Enabled $Enabled
+      Set-WidgetTransitionContentStage -Staged $true
     }
-    Set-WidgetLocalizedTree $script:toolbar
-    Update-ResponsiveHeader
-    $script:opacitySlider.Value = $script:baseOpacity
-    $script:opacityValue.Text = '{0:P0}' -f $script:baseOpacity
-    $visibilityReason = if ($Initial) { 'initial mode restore' } else { 'ui mode change' }
-    Ensure-WindowVisible `
-      -Reason $visibilityReason `
-      -Quiet:(-not $Initial) | Out-Null
-    if ($script:window.IsLoaded) {
-      Render-Items
-      Update-WidgetOpacity
-      if (-not $Initial) {
-        Start-WidgetBoundsTransition -FromLeft $oldBounds[0] -FromTop $oldBounds[1] -FromWidth $oldBounds[2] -FromHeight $oldBounds[3]
-      }
-      Save-State
-      Write-RuntimeLog "MIN UI mode changed. enabled=$Enabled width=$([math]::Round($script:window.Width))"
-    }
+    $script:widgetModeTransitionContext=[ordered]@{Enabled=$Enabled;Initial=[bool]$Initial}
+    $onCommitted={param($Settled,$Reason) Complete-WidgetModeTransition -Settled $Settled -Reason $Reason}
+    Start-WidgetBoundsTransition `
+      -FromLeft $from.Left -FromTop $from.Top -FromWidth $from.Width -FromHeight $from.Height `
+      -TargetLeft $target.Left -TargetTop $target.Top -TargetWidth $target.Width -TargetHeight $target.Height `
+      -OnCommitted $onCommitted
+  } catch {
+    # Do not leave the body invisible if a mode transition cannot be started.
+    Set-WidgetTransitionContentStage -Staged $false
+    $script:widgetModeTransitionContext=$null
+    throw
   } finally {
-    $script:updatingAutostartCheck = $previousAutostartGuard
-    $script:applyingUiMode = $false
+    $script:updatingAutostartCheck=$previousAutostartGuard
+    $script:applyingUiMode=$false
   }
 }
 
@@ -9895,6 +9951,9 @@ $script:opacitySlider.Add_ValueChanged({
       return
     }
     $script:baseOpacity = [double]$script:opacitySlider.Value
+    $script:minUiOpacity = $script:baseOpacity
+    $script:state.window.opacity = $script:baseOpacity
+    $script:state.window.minUiOpacity = $script:baseOpacity
     $script:opacityValue.Text = '{0:P0}' -f $script:baseOpacity
     Update-WidgetOpacity -ForceBase
     $script:saveTimer.Stop()
@@ -9968,6 +10027,7 @@ $script:startWithWindowsCheck.Add_Unchecked({
 $script:showHiddenCheck.Add_Checked({ Render-Items })
 $script:showHiddenCheck.Add_Unchecked({ Render-Items })
   $script:resetSizeButton.Add_Click({
+    Cancel-WidgetBoundsTransition -Reason 'reset size' | Out-Null
     $script:window.Width = 552
     $script:window.Height = 640
     $workArea = [System.Windows.SystemParameters]::WorkArea
@@ -9984,6 +10044,7 @@ $script:refreshButton.Add_Click({ Start-HealthCheck })
 function Start-BottomRightResize {
   param($EventArgs)
 
+  Cancel-WidgetBoundsTransition -Reason 'user resize' | Out-Null
   $helper = [System.Windows.Interop.WindowInteropHelper]::new($script:window)
   [WorkspaceWidgetNative]::ReleaseCapture() | Out-Null
   [WorkspaceWidgetNative]::SendMessage(
@@ -10003,6 +10064,7 @@ $script:header.Add_MouseLeftButtonDown({
     if ($eventArgs.ChangedButton -eq [System.Windows.Input.MouseButton]::Left -and
         -not (Test-WidgetInteractiveOrigin $eventArgs.OriginalSource)) {
       try {
+        Cancel-WidgetBoundsTransition -Reason 'user drag' | Out-Null
         $script:widgetDragging = $true
         $script:minUiSnapTimer.Stop()
         $script:window.DragMove()
@@ -10023,6 +10085,7 @@ $script:window.Add_MouseLeave({
     Update-WidgetOpacity -ForceBase
   })
 $script:window.Add_LocationChanged({
+    if($null -ne $script:widgetTransitionTarget){return}
     if (
       -not $script:widgetDragging -and $script:state.window.edgeSnap -and
       -not $script:applyingUiMode -and
@@ -10036,6 +10099,7 @@ $script:window.Add_LocationChanged({
   })
 $script:window.Add_SizeChanged({
     Update-ResponsiveHeader
+    if($null -ne $script:widgetTransitionTarget){return}
     $script:saveTimer.Stop()
     $script:saveTimer.Start()
     $script:scrollAnimationActive = $false

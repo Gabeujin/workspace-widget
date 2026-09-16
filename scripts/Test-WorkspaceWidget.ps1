@@ -1009,7 +1009,8 @@ $checks = [ordered]@{
     $appContent -match '\$geometry = Resolve-VisibleWindowGeometry' -and
     $appContent -match "Ensure-WindowVisible -Reason 'source initialized'" -and
     $appContent -match 'Ensure-WindowVisible -Reason \$Reason -Persist' -and
-    $appContent -match '\$visibilityReason = if \(\$Initial\).*''ui mode change'''
+    $appContent -match '\$visibilityReason\s*=\s*if\s*\(\$Initial\).*''ui mode transition''' -and
+    $appContent -match '(?s)function Complete-WidgetModeTransition\b.*?Ensure-WindowVisible -Reason \$visibilityReason'
   urlPortSubtitle = @($runtimeState.items | Where-Object {
       $_.target -match '^https?://[^/]+:\d+' -and $_.subtitle -notmatch '^Port \d+$'
     }).Count -eq 0

@@ -109,3 +109,41 @@ native interaction, multi-monitor, clean-install or public release claim.
 - Latest official checkout action 7.0.1 is pinned by immutable commit. Public
   source and network-boundary regressions passed. Final native interaction,
   clean-source packaging, remote CI and publication remain separate gates.
+
+### User-recorded motion regression — release hold
+
+- A user recording supersedes the earlier final-bounds-only evidence: full and
+  MIN modes retained different opacity values, and full-size card shells were
+  visibly clipped inside the narrow rail during mode changes.
+- Source inspection found destination constraints and native bounds were applied
+  before the animation started. Intermediate layout and shared-opacity behavior
+  were absent from the earlier fixture's assertions.
+- Repair scope is shared resting opacity with preservation of the active legacy
+  setting, explicit destination bounds, staged content, and cancellation/reversal
+  without stale callbacks. First/intermediate frames require separate assertions.
+- The previous remote CI also failed the authenticated startup probe after its
+  static and motion checks passed. This is a separate unresolved release gate;
+  no final public release or Store-submission package is asserted.
+
+### Motion correction and installed readback
+
+- Removed the destination-first resize and the end-of-animation rewind. Bounds
+  use explicit targets with HoldEnd until a bounded commit; superseding a
+  transition starts at the current presentation without its stale callback.
+- Full/MIN opacity now shares one value. First migration preserves the active
+  legacy profile, and both retained fields are saved identically thereafter.
+- The integration fixture passes 47 assertions, including first-frame geometry,
+  staged card/chrome visibility, reversal, deadline persistence and reduced motion.
+  A second real-WPF fixture samples effective width/height every 10 ms in both
+  directions, rejects reverse movement over 2 px, and tests opacity migration.
+  Sample-dependent assertion totals vary by dispatcher scheduling.
+- A fresh candidate passed all 19 development-stage release checks, then its
+  complete manifest was verified at the new installation location. All 12
+  registrations, the disabled startup preference and existing supervisors were
+  retained; old installation files were not removed.
+- Installed UI buttons completed full-to-MIN-to-full transitions with 96/430 px
+  settled widths. The MIN Settings dialog and restored full state both retained
+  the original 57% opacity. The settings dialog was closed after verification.
+- This proves functional transitions and isolated monotonic bounds, not a measured
+  display refresh rate or a post-fix video capture. The remote startup-probe CI
+  failure and final public release/Store package remain separate open gates.

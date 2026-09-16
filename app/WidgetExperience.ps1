@@ -252,26 +252,73 @@ function Restore-WidgetBoundsTransitionTarget {
   return $true
 }
 
+function Complete-WidgetBoundsTransition {
+  param(
+    [bool]$Settled,
+    [string]$Reason
+  )
+
+  $target=$script:widgetTransitionTarget
+  if($null -eq $target){return $false}
+  if($null -ne $script:widgetTransition){$script:widgetTransition.Stop()}
+  [void](Restore-WidgetBoundsTransitionTarget)
+  $script:widgetTransition=$null
+  $script:widgetTransitionTarget=$null
+  if($null -ne $target.OnCommitted){
+    & $target.OnCommitted $Settled $Reason
+  }
+  return $true
+}
+
 function Cancel-WidgetBoundsTransition {
   param([string]$Reason)
-  if ($null -ne $script:widgetTransition) { $script:widgetTransition.Stop(); $script:widgetTransition=$null }
-  if (Restore-WidgetBoundsTransitionTarget) {
-    $script:window.MinWidth=if($script:minUiMode){$script:minUiWidth}else{430}
-    $script:window.MaxWidth=if($script:minUiMode){$script:minUiWidth}else{1000}
-    $script:widgetTransitionTarget=$null
+  if(Complete-WidgetBoundsTransition -Settled:$false -Reason $Reason){
     if (-not [string]::IsNullOrWhiteSpace($Reason)) {
       Write-RuntimeLog "Widget bounds transition cancelled: $Reason"
     }
+    return $true
   }
+  return $false
+}
+
+function Supersede-WidgetBoundsTransition {
+  if($null -eq $script:widgetTransitionTarget){return $false}
+  if($null -ne $script:widgetTransition){$script:widgetTransition.Stop()}
+  # Retain the rendered value as the next transition's base. This intentionally
+  # does not invoke the prior completion callback or snap to its old target.
+  foreach($property in @('Left','Top','Width','Height')) {
+    $dp=[System.Windows.Window]::("${property}Property")
+    $current=[double]$script:window.GetValue($dp)
+    $script:window.BeginAnimation($dp,$null)
+    $script:window.SetValue($dp,$current)
+  }
+  $script:widgetTransition=$null
+  $script:widgetTransitionTarget=$null
+  return $true
 }
 
 function Start-WidgetBoundsTransition {
-  param([double]$FromLeft,[double]$FromTop,[double]$FromWidth,[double]$FromHeight)
+  param(
+    [double]$FromLeft,
+    [double]$FromTop,
+    [double]$FromWidth,
+    [double]$FromHeight,
+    [double]$TargetLeft,
+    [double]$TargetTop,
+    [double]$TargetWidth,
+    [double]$TargetHeight,
+    [scriptblock]$OnCommitted
+  )
+  if($null -ne $script:widgetTransitionTarget){
+    Supersede-WidgetBoundsTransition | Out-Null
+  }
+  $script:widgetTransitionTarget=[ordered]@{
+    Left=$TargetLeft; Top=$TargetTop; Width=$TargetWidth; Height=$TargetHeight; OnCommitted=$OnCommitted
+  }
   if (-not (Test-WidgetMotionEnabled) -or -not $script:window.IsVisible) {
-    Cancel-WidgetBoundsTransition -Reason 'motion disabled or window hidden'
+    Complete-WidgetBoundsTransition -Settled:$false -Reason 'motion disabled or window hidden' | Out-Null
     return
   }
-  if ($null -ne $script:widgetTransition) { $script:widgetTransition.Stop() }
   if ($script:widgetTransitionClosedWindow -ne $script:window) {
     if ($null -ne $script:widgetTransitionClosedWindow -and $null -ne $script:widgetTransitionClosedHandler) {
       $script:widgetTransitionClosedWindow.remove_Closed($script:widgetTransitionClosedHandler)
@@ -280,29 +327,16 @@ function Start-WidgetBoundsTransition {
     $script:window.add_Closed($script:widgetTransitionClosedHandler)
     $script:widgetTransitionClosedWindow=$script:window
   }
-  # A visible native Window can commit its rendered Height into the dependency
-  # property's base value while an animation is in flight. Retain the original
-  # target across a reversal, then reapply it when each clock is removed.
-  if ($null -eq $script:widgetTransitionTarget) {
-    $script:widgetTransitionTarget=[ordered]@{}
-    foreach($property in @('Left','Top','Width','Height')) {
-      $dp=[System.Windows.Window]::("${property}Property")
-      $script:widgetTransitionTarget[$property]=[double]$script:window.GetAnimationBaseValue($dp)
-    }
-  }
   $target=$script:widgetTransitionTarget
-  foreach($property in @('Left','Top','Width','Height')) {
-    $dp=[System.Windows.Window]::("${property}Property")
-    $script:window.BeginAnimation($dp,$null)
-    $script:window.SetValue($dp,[double]$target[$property])
-  }
+  # Keep only a broad transitional range while animated. The exact destination
+  # constraints and values are committed after the clocks have been removed.
   $script:window.MinWidth=$script:minUiWidth; $script:window.MaxWidth=1000
   $duration=[System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(220))
   $from=@{Left=$FromLeft;Top=$FromTop;Width=$FromWidth;Height=$FromHeight}
   foreach ($property in @('Left','Top','Width','Height')) {
     $animation=[System.Windows.Media.Animation.DoubleAnimation]::new([double]$from[$property],[double]$target[$property],$duration)
     $ease=[System.Windows.Media.Animation.CubicEase]::new(); $ease.EasingMode='EaseOut'; $animation.EasingFunction=$ease
-    $animation.FillBehavior='Stop'
+    $animation.FillBehavior='HoldEnd'
     $dp=[System.Windows.Window]::("${property}Property")
     $script:window.BeginAnimation($dp,$animation,[System.Windows.Media.Animation.HandoffBehavior]::SnapshotAndReplace)
   }
@@ -318,10 +352,7 @@ function Start-WidgetBoundsTransition {
       return
     }
     if(-not [bool]$sender.Tag.settling){
-      foreach($property in @('Left','Top','Width','Height')) {
-        $dp=[System.Windows.Window]::("${property}Property")
-        $script:window.BeginAnimation($dp,$null)
-      }
+      [void](Restore-WidgetBoundsTransitionTarget)
       $sender.Tag.settling=$true
       $sender.Tag.settleStarted=[Diagnostics.Stopwatch]::StartNew()
       $sender.Interval=[TimeSpan]::FromMilliseconds(20)
@@ -340,18 +371,10 @@ function Start-WidgetBoundsTransition {
       [void](Restore-WidgetBoundsTransitionTarget)
     }
     if($sender.Tag.stableTicks -ge 2){
-      $sender.Stop()
-      $script:window.MinWidth=if($script:minUiMode){$script:minUiWidth}else{430}
-      $script:window.MaxWidth=if($script:minUiMode){$script:minUiWidth}else{1000}
-      $script:widgetTransitionTarget=$null
-      Save-State | Out-Null
+      Complete-WidgetBoundsTransition -Settled:$true -Reason 'settled' | Out-Null
     } elseif($sender.Tag.attempts -ge 16 -or $sender.Tag.settleStarted.ElapsedMilliseconds -ge 1000) {
-      [void](Restore-WidgetBoundsTransitionTarget)
-      $sender.Stop()
-      $script:window.MinWidth=if($script:minUiMode){$script:minUiWidth}else{430}
-      $script:window.MaxWidth=if($script:minUiMode){$script:minUiWidth}else{1000}
-      $script:widgetTransitionTarget=$null
-      Write-RuntimeLog 'Widget bounds transition did not stabilize before its settle deadline; target was restored without persisting state.'
+      Complete-WidgetBoundsTransition -Settled:$false -Reason 'settle deadline' | Out-Null
+      Write-RuntimeLog 'Widget bounds transition did not stabilize before its settle deadline; explicit target was restored through its completion callback.'
     }
   })
   $script:widgetTransition.Start()
