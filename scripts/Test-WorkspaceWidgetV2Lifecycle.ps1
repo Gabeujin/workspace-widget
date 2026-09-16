@@ -206,6 +206,21 @@ Assert-That (-not $psMismatch.success -and $psMismatch.state -eq 'Ambiguous' -an
   'StopV2 accepted PowerShell arguments that did not match the startup binding.'
 $psStopped = Convert-LifecycleJson ($client::StopV2((Join-Path $fixtureRoot 'powershell-runtime'),
   'two-health-powershell', $psDigest, $psUrls, $psStopPath, $psArgs, $false, 5000))
+$psAllHealthOffline = ('allHealthOffline' -in $psStopped.PSObject.Properties.Name) -and
+  [bool]$psStopped.allHealthOffline
+if (-not $psStopped.success -or -not $psAllHealthOffline) {
+  # Native lifecycle errors are bounded control results, not raw helper output.
+  [ordered]@{
+    probe = 'powershell-stop-helper'
+    success = [bool]$psStopped.success
+    state = [string]$psStopped.state
+    error = [string]$psStopped.error
+    allHealthOffline = $psAllHealthOffline
+    executionPolicies = @(Get-ExecutionPolicy -List | ForEach-Object {
+      [ordered]@{ scope = [string]$_.Scope; policy = [string]$_.ExecutionPolicy }
+    })
+  } | ConvertTo-Json -Depth 4 -Compress | Write-Output
+}
 Assert-That ($psStopped.success -and $psStopped.allHealthOffline -and
   ((-not (Test-HttpReady $psPortA 1000)) -and (-not (Test-HttpReady $psPortB 1000)))) `
   'The fixed PowerShell helper did not stop only the owned two-health job.'
