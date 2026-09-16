@@ -1,7 +1,7 @@
 # Workspace Widget public release roadmap
 
-- Last updated: 2026-08-26
-- Release target: 0.1.0
+- Last updated: 2026-09-16
+- Release target: 0.2.0 development preview
 - Public repository: <https://github.com/Gabeujin/workspace-widget>
 - Product site target: <https://gabeujin.github.io/workspace-widget/>
 
@@ -16,7 +16,17 @@ the source-only release candidate, and product documentation may be published
 before Store certification. Unsigned MSIX and legacy installer artifacts must
 not be offered as public downloads.
 
-## Current baseline
+## Current 0.2.0 boundary
+
+The current candidate is tracked in [the public release review](../PUBLIC-RELEASE-REVIEW.md)
+and [the modernization worklog](MODERNIZATION-WORKLOG.md). Its final hosted
+lifecycle gate, exact-source package, candidate-specific certification-kit and
+malware checks, final installed readback, and new source-only release are pending.
+The completed rows and quality score in the archived sections below describe
+the 0.1.0 evidence only; they do not certify 0.2.0 or replace the current KGJ
+evidence gate, which remains HOLD. No unsigned binary is a supported public download.
+
+## Archived 0.1.0 baseline and phase evidence
 
 | Area | Status | Evidence |
 | --- | --- | --- |

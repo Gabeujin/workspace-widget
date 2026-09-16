@@ -186,6 +186,8 @@ $psStopPath = Join-Path $fixtureRoot 'managed-stop.ps1'
 $psStopSource = @'
 param([string]$Reason)
 if ($Reason -cne 'bound') { exit 4 }
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class HelperConsoleProbe { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }'
+if ([HelperConsoleProbe]::GetConsoleWindow() -ne [IntPtr]::Zero) { exit 5 }
 Write-Output '{"action":"signal"}'
 '@
 [IO.File]::WriteAllText($psStopPath, $psStopSource, [Text.UTF8Encoding]::new($false))
@@ -205,7 +207,7 @@ $psMismatch = Convert-LifecycleJson ($client::StopV2((Join-Path $fixtureRoot 'po
 Assert-That (-not $psMismatch.success -and $psMismatch.state -eq 'Ambiguous' -and (Test-HttpReady $psPortA 1000)) `
   'StopV2 accepted PowerShell arguments that did not match the startup binding.'
 # Match the actual Widget stop request budget. Hosted Windows PowerShell cold
-# initialization exceeded the old 5-second fixture budget; the native helper
+# initialization can exceed the old 5-second fixture budget; the native helper
 # still enforces its independent 30-second cap and authenticated stop boundary.
 $psStopped = Convert-LifecycleJson ($client::StopV2((Join-Path $fixtureRoot 'powershell-runtime'),
   'two-health-powershell', $psDigest, $psUrls, $psStopPath, $psArgs, $false, 40000))

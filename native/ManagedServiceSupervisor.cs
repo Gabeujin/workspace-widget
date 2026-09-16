@@ -3167,6 +3167,7 @@ namespace WorkspaceWidget.Native
         public const uint ProcessQueryLimitedInformation = 0x1000;
         public const uint Synchronize = 0x00100000;
         private const uint CreateSuspended = 0x00000004;
+        private const uint CreateNoWindow = 0x08000000;
         private const uint CreateNewProcessGroup = 0x00000200;
         private const uint CreateUnicodeEnvironment = 0x00000400;
         private const uint StartfUseShowWindow = 0x00000001;
@@ -3461,7 +3462,7 @@ namespace WorkspaceWidget.Native
                 StringBuilder command = new StringBuilder(Quote(executable) +
                     (String.IsNullOrWhiteSpace(arguments) ? String.Empty : " " + arguments));
                 created = CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true,
-                    CreateSuspended | CreateUnicodeEnvironment, environment, workingDirectory,
+                    CreateSuspended | CreateNoWindow | CreateUnicodeEnvironment, environment, workingDirectory,
                     ref startup, out process);
                 if (!created)
                 {

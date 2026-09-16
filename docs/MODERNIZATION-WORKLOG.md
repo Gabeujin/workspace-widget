@@ -227,3 +227,12 @@ native interaction, multi-monitor, clean-install or public release claim.
   Final feedback localization regression passes 58 checks including tray warnings;
   integrated appearance settings pass 63 assertions. Final packaging remains held
   until the hosted lifecycle gate passes.
+- Hosted run `35053391451` localized the helper failure to `process-exit`, not
+  pipe draining. The helper launch now explicitly uses `CREATE_NO_WINDOW` with
+  its existing redirected handles, instead of inheriting the caller's console.
+  This is confined to noninteractive stop helpers; service roots retain the
+  console/process-group contract needed for graceful signals. The hosted result
+  must still confirm whether this resolves the observed timeout.
+- Korean primary-flow review additionally localized registration validation,
+  deletion and verified force-stop dialogs, retaining the default-No consent and
+  unsaved-work warning. The dialog template/AST regression passes 66 checks.

@@ -2957,8 +2957,8 @@ function Remove-ItemRegistration {
   $itemName = [string]$Item.name
   $result = [System.Windows.MessageBox]::Show(
     $script:window,
-    "Remove '$itemName' from Workspace?`n`nThe original file, application, folder, or URL will not be deleted.",
-    'Remove shortcut',
+    ((Get-WidgetText 'Remove ''{0}'' from Workspace?{1}{1}The original file, application, folder, or URL will not be deleted.') -f $itemName, [Environment]::NewLine),
+    (Get-WidgetText 'Remove shortcut'),
     [System.Windows.MessageBoxButton]::YesNo,
     [System.Windows.MessageBoxImage]::Warning,
     [System.Windows.MessageBoxResult]::No
@@ -2980,7 +2980,7 @@ function Remove-ItemRegistration {
   [void]$script:pendingOpen.Remove($itemId)
   Save-State
   Render-Items
-  Show-Toast -Message "'$itemName' removed from Workspace"
+  Show-Toast -Message ((Get-WidgetText '{0} removed from Workspace') -f $itemName)
 }
 
 function Show-ItemDialog {
@@ -3938,7 +3938,7 @@ function Show-ItemDialog {
       if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($targetInput)) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'Name and target are required.',
+          (Get-WidgetText 'Name and target are required.'),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -3951,7 +3951,7 @@ function Show-ItemDialog {
       ) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          "Workspace supports up to $($script:maximumShortcutCount) shortcuts.",
+          ((Get-WidgetText 'Workspace supports up to {0} shortcuts.') -f $script:maximumShortcutCount),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -3969,7 +3969,7 @@ function Show-ItemDialog {
       ) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'Use an absolute http/https URL without embedded credentials, or an existing local path.',
+          (Get-WidgetText 'Use an absolute http/https URL without embedded credentials, or an existing local path.'),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -3981,7 +3981,7 @@ function Show-ItemDialog {
       if (-not $registration.success) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'The shortcut target could not be resolved.',
+          (Get-WidgetText 'The shortcut target could not be resolved.'),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -4000,7 +4000,7 @@ function Show-ItemDialog {
       ) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          "The resolved target no longer exists:`n$target",
+          ((Get-WidgetText 'The resolved target no longer exists:{0}{1}') -f [Environment]::NewLine, $target),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -4048,7 +4048,7 @@ function Show-ItemDialog {
       if (-not [string]::IsNullOrWhiteSpace($health) -and $null -eq $healthUri) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'Health URL must be an absolute http/https URL without embedded credentials.',
+          (Get-WidgetText 'Health URL must be an absolute http/https URL without embedded credentials.'),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -4071,7 +4071,7 @@ function Show-ItemDialog {
           ) {
             [System.Windows.MessageBox]::Show(
               $dialog,
-              'Wait for the HTTPS icon preview, then confirm that it is the icon you want.',
+              (Get-WidgetText 'Wait for the HTTPS icon preview, then confirm that it is the icon you want.'),
               'Workspace',
               [System.Windows.MessageBoxButton]::OK,
               [System.Windows.MessageBoxImage]::Information
@@ -4088,7 +4088,7 @@ function Show-ItemDialog {
           ) {
             [System.Windows.MessageBox]::Show(
               $dialog,
-              'Custom icon must be a readable local PNG, JPG, BMP, ICO, or GIF file, or a verified public HTTPS image URL.',
+              (Get-WidgetText 'Custom icon must be a readable local PNG, JPG, BMP, ICO, or GIF file, or a verified public HTTPS image URL.'),
               'Workspace',
               [System.Windows.MessageBoxButton]::OK,
               [System.Windows.MessageBoxImage]::Information
@@ -4109,7 +4109,7 @@ function Show-ItemDialog {
       ) {
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'Hover media must be a supported local file, public HTTPS image, or YouTube link.',
+          (Get-WidgetText 'Hover media must be a supported local file, public HTTPS image, or YouTube link.'),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Information
@@ -4120,7 +4120,7 @@ function Show-ItemDialog {
         if ($null -ne $healthUri -and -not (Test-LoopbackWebUri -Uri $healthUri)) {
           [System.Windows.MessageBox]::Show(
             $dialog,
-            'A Node start target can only be paired with a loopback health URL such as http://127.0.0.1:3000/health. Remote health monitoring remains available when no Node start target is configured.',
+            (Get-WidgetText 'A Node start target can only be paired with a loopback health URL such as http://127.0.0.1:3000/health. Remote health monitoring remains available when no Node start target is configured.'),
             'Workspace',
             [System.Windows.MessageBoxButton]::OK,
             [System.Windows.MessageBoxImage]::Information
@@ -4130,7 +4130,7 @@ function Show-ItemDialog {
         if (-not (Test-Path -LiteralPath $startupTarget)) {
           [System.Windows.MessageBox]::Show(
             $dialog,
-            'Node start target must be an existing JS entry file or project folder.',
+            (Get-WidgetText 'Node start target must be an existing JS entry file or project folder.'),
             'Workspace',
             [System.Windows.MessageBoxButton]::OK,
             [System.Windows.MessageBoxImage]::Information
@@ -4142,7 +4142,7 @@ function Show-ItemDialog {
           if (-not (Test-Path -LiteralPath (Join-Path $startupTarget 'package.json') -PathType Leaf)) {
             [System.Windows.MessageBox]::Show(
               $dialog,
-              'A Node project folder must contain package.json.',
+              (Get-WidgetText 'A Node project folder must contain package.json.'),
               'Workspace',
               [System.Windows.MessageBoxButton]::OK,
               [System.Windows.MessageBoxImage]::Information
@@ -4152,7 +4152,7 @@ function Show-ItemDialog {
           if (-not [string]::IsNullOrWhiteSpace($startupArgs) -and $startupArgs -notmatch '^[A-Za-z0-9:_-]+$') {
             [System.Windows.MessageBox]::Show(
               $dialog,
-              'For a project folder, enter one package script name such as dev or start.',
+              (Get-WidgetText 'For a project folder, enter one package script name such as dev or start.'),
               'Workspace',
               [System.Windows.MessageBoxButton]::OK,
               [System.Windows.MessageBoxImage]::Information
@@ -4162,7 +4162,7 @@ function Show-ItemDialog {
         } elseif ([System.IO.Path]::GetExtension($startupTarget) -notmatch '^\.(js|mjs|cjs|ps1)$') {
           [System.Windows.MessageBox]::Show(
             $dialog,
-            'A Node entry file must end in .js, .mjs, or .cjs.',
+            (Get-WidgetText 'A start script file must end in .js, .mjs, .cjs, or .ps1.'),
             'Workspace',
             [System.Windows.MessageBoxButton]::OK,
             [System.Windows.MessageBoxImage]::Information
@@ -4243,7 +4243,7 @@ function Show-ItemDialog {
         Render-Items
         [System.Windows.MessageBox]::Show(
           $dialog,
-          'Workspace could not save this registration. No changes were kept.',
+          (Get-WidgetText 'Workspace could not save this registration. No changes were kept.'),
           'Workspace',
           [System.Windows.MessageBoxButton]::OK,
           [System.Windows.MessageBoxImage]::Error
@@ -4787,9 +4787,8 @@ function Stop-TrackedLocalServer {
       if (-not $ConfirmForce) { return $false }
       $confirmation = [System.Windows.MessageBox]::Show(
         $script:window,
-        "The server '$($Item.name)' did not finish stopping within 40 seconds." + [Environment]::NewLine + [Environment]::NewLine +
-        'Force-stop its verified process group? Unsaved server work may be lost.',
-        'Force-stop local server',
+        ((Get-WidgetText 'The server ''{0}'' did not finish stopping within 40 seconds.{1}{1}Force-stop its verified process group? Unsaved server work may be lost.') -f $Item.name, [Environment]::NewLine),
+        (Get-WidgetText 'Force-stop local server'),
         [System.Windows.MessageBoxButton]::YesNo,
         [System.Windows.MessageBoxImage]::Warning,
         [System.Windows.MessageBoxResult]::No)

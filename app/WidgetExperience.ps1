@@ -86,6 +86,22 @@ $script:widgetWords = @{
   'Turn this on to register Workspace Widget for Windows sign-in.'='Windows 로그인 시 위젯을 실행하도록 등록하려면 켜세요.'
   'Windows did not allow this account to inspect or change startup.'='Windows에서 이 계정의 시작 설정 확인 또는 변경을 허용하지 않았습니다.'
   'Autostart status is unavailable.'='자동 시작 상태를 확인할 수 없습니다.'
+  'Remove ''{0}'' from Workspace?{1}{1}The original file, application, folder, or URL will not be deleted.'='''{0}'' 바로가기를 위젯에서 삭제할까요?{1}{1}원본 파일, 앱, 폴더 또는 URL은 삭제하지 않습니다.'
+  '{0} removed from Workspace'='위젯에서 ''{0}'' 바로가기를 삭제했습니다.'
+  'Name and target are required.'='이름과 대상은 필수입니다.'; 'Workspace supports up to {0} shortcuts.'='위젯에는 바로가기를 최대 {0}개까지 추가할 수 있습니다.'
+  'Use an absolute http/https URL without embedded credentials, or an existing local path.'='사용자 이름·비밀번호가 포함되지 않은 절대 http/https URL 또는 존재하는 로컬 경로를 입력하세요.'
+  'The shortcut target could not be resolved.'='바로가기 대상을 확인할 수 없습니다.'; 'The resolved target no longer exists:{0}{1}'='확인한 대상이 더 이상 존재하지 않습니다:{0}{1}'
+  'Health URL must be an absolute http/https URL without embedded credentials.'='상태 확인 URL은 사용자 이름·비밀번호가 포함되지 않은 절대 http/https URL이어야 합니다.'
+  'Wait for the HTTPS icon preview, then confirm that it is the icon you want.'='HTTPS 아이콘 미리보기가 끝난 뒤 원하는 아이콘인지 확인하세요.'
+  'Custom icon must be a readable local PNG, JPG, BMP, ICO, or GIF file, or a verified public HTTPS image URL.'='사용자 지정 아이콘은 읽을 수 있는 로컬 PNG, JPG, BMP, ICO 또는 GIF 파일이거나 확인된 공개 HTTPS 이미지 URL이어야 합니다.'
+  'Hover media must be a supported local file, public HTTPS image, or YouTube link.'='마우스를 올릴 때 표시할 미디어는 지원하는 로컬 파일, 공개 HTTPS 이미지 또는 YouTube 링크여야 합니다.'
+  'A Node start target can only be paired with a loopback health URL such as http://127.0.0.1:3000/health. Remote health monitoring remains available when no Node start target is configured.'='Node 시작 대상에는 http://127.0.0.1:3000/health와 같은 루프백 상태 확인 URL만 연결할 수 있습니다. Node 시작 대상을 구성하지 않으면 원격 상태 확인도 사용할 수 있습니다.'
+  'Node start target must be an existing JS entry file or project folder.'='Node 시작 대상은 존재하는 JS 엔트리 파일 또는 프로젝트 폴더여야 합니다.'; 'A Node project folder must contain package.json.'='Node 프로젝트 폴더에는 package.json이 있어야 합니다.'
+  'For a project folder, enter one package script name such as dev or start.'='프로젝트 폴더에는 dev 또는 start와 같은 패키지 스크립트 이름 하나를 입력하세요.'
+  'A start script file must end in .js, .mjs, .cjs, or .ps1.'='시작 스크립트 파일은 .js, .mjs, .cjs 또는 .ps1 확장자여야 합니다.'
+  'Workspace could not save this registration. No changes were kept.'='이 등록 항목을 저장하지 못했습니다. 변경 사항을 모두 되돌렸습니다.'
+  'The server ''{0}'' did not finish stopping within 40 seconds.{1}{1}Force-stop its verified process group? Unsaved server work may be lost.'='서버 ''{0}''가 40초 안에 종료되지 않았습니다.{1}{1}확인된 프로세스 그룹을 강제 종료할까요? 저장하지 않은 서버 작업이 손실될 수 있습니다.'
+  'Force-stop local server'='로컬 서버 강제 종료'
 }
 
 function Initialize-ExperienceState {
