@@ -204,8 +204,11 @@ $psMismatch = Convert-LifecycleJson ($client::StopV2((Join-Path $fixtureRoot 'po
   'two-health-powershell', $psDigest, $psUrls, $psStopPath, '-Reason changed', $false, 5000))
 Assert-That (-not $psMismatch.success -and $psMismatch.state -eq 'Ambiguous' -and (Test-HttpReady $psPortA 1000)) `
   'StopV2 accepted PowerShell arguments that did not match the startup binding.'
+# Match the actual Widget stop request budget. Hosted Windows PowerShell cold
+# initialization exceeded the old 5-second fixture budget; the native helper
+# still enforces its independent 30-second cap and authenticated stop boundary.
 $psStopped = Convert-LifecycleJson ($client::StopV2((Join-Path $fixtureRoot 'powershell-runtime'),
-  'two-health-powershell', $psDigest, $psUrls, $psStopPath, $psArgs, $false, 5000))
+  'two-health-powershell', $psDigest, $psUrls, $psStopPath, $psArgs, $false, 40000))
 $psAllHealthOffline = ('allHealthOffline' -in $psStopped.PSObject.Properties.Name) -and
   [bool]$psStopped.allHealthOffline
 if (-not $psStopped.success -or -not $psAllHealthOffline) {
