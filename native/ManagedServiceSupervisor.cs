@@ -29,6 +29,7 @@ namespace WorkspaceWidget.Native
         private const int StartupAuthenticationDeadlineMilliseconds = 15000;
         private const int StartupRecoveryDeadlineMilliseconds = 45000;
         private const int HealthProbeDeadlineMilliseconds = 1500;
+        private const int MaximumSupervisorDiagnosticBytes = 4096;
         private static readonly JavaScriptSerializer Json = CreateSerializer();
 
         public static string Start(
@@ -679,9 +680,11 @@ namespace WorkspaceWidget.Native
                 }
                 launchedSupervisor = supervisor;
                 launchedSupervisorHost = safeHost;
-                // Service console output can reach these streams on Windows.
-                // Drain fixed-size buffers; logs are never lifecycle authority.
-                DrainUntrustedOutput(supervisor.StandardOutput.BaseStream);
+                // The child can inherit this console on Windows.  Keep draining it so
+                // it cannot block the supervisor, but accept only the supervisor's
+                // fixed structured startup diagnostic after that exact host exits.
+                Task<string> supervisorOutput = ReadBoundedSupervisorDiagnostic(
+                    supervisor.StandardOutput.BaseStream);
                 DrainUntrustedOutput(supervisor.StandardError.BaseStream);
                 supervisor.StandardInput.WriteLine(descriptorJson);
                 supervisor.StandardInput.Flush();
@@ -748,7 +751,8 @@ namespace WorkspaceWidget.Native
                     }
                     if (supervisor.HasExited)
                     {
-                        throw new InvalidOperationException("The lifecycle supervisor exited before authenticated startup completed.");
+                        throw new InvalidOperationException(DescribeSupervisorExit(
+                            supervisor, supervisorOutput));
                     }
                     // The record includes image hashes and is deliberately written only
                     // after the child is assigned to the kill-on-close job.  On a cold
@@ -1070,6 +1074,60 @@ namespace WorkspaceWidget.Native
             }, TaskScheduler.Default);
         }
 
+        private static async Task<string> ReadBoundedSupervisorDiagnostic(Stream stream)
+        {
+            byte[] capture = new byte[MaximumSupervisorDiagnosticBytes];
+            byte[] drain = new byte[1024];
+            int captured = 0;
+            while (true)
+            {
+                byte[] target = captured < capture.Length ? capture : drain;
+                int offset = captured < capture.Length ? captured : 0;
+                int count = captured < capture.Length ? capture.Length - captured : drain.Length;
+                int read = await stream.ReadAsync(target, offset, count).ConfigureAwait(false);
+                if (read == 0) { break; }
+                if (captured < capture.Length) { captured += read; }
+            }
+            return Encoding.UTF8.GetString(capture, 0, captured);
+        }
+
+        private static string DescribeSupervisorExit(Process supervisor, Task<string> output)
+        {
+            int exitCode = 0;
+            try { exitCode = supervisor.ExitCode; }
+            catch (InvalidOperationException) { }
+            string stage = "unknown";
+            int nativeError = 0;
+            try
+            {
+                if (output.Wait(250) && output.Status == TaskStatus.RanToCompletion)
+                {
+                    Dictionary<string, object> result = LifecycleJson.Parse(output.Result.Trim());
+                    string error = LifecycleJson.String(result, "error");
+                    if (!LifecycleJson.Boolean(result, "success") &&
+                        !LifecycleJson.Boolean(result, "owned") &&
+                        String.Equals(LifecycleJson.String(result, "state"), "Ambiguous",
+                            StringComparison.Ordinal) &&
+                        LifecycleJson.Integer(result, "processId", 0) == supervisor.Id)
+                    {
+                        Match match = Regex.Match(error ?? String.Empty,
+                            "^supervisor-stage=(descriptor|launch-contract|capability|preflight|job|console|launch|assign-job|record|active-pointer|resume|pipe);native-error=(-?\\d+)$",
+                            RegexOptions.CultureInvariant);
+                        if (match.Success)
+                        {
+                            stage = match.Groups[1].Value;
+                            Int32.TryParse(match.Groups[2].Value, NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out nativeError);
+                        }
+                    }
+                }
+            }
+            catch (Exception) { }
+            return "The lifecycle supervisor exited before authenticated startup completed " +
+                "(stage=" + stage + "; exitCode=" + exitCode.ToString(CultureInfo.InvariantCulture) +
+                "; nativeError=" + nativeError.ToString(CultureInfo.InvariantCulture) + ").";
+        }
+
         private static JavaScriptSerializer CreateSerializer()
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
@@ -1093,6 +1151,7 @@ namespace WorkspaceWidget.Native
         {
             NativeProcess root = null;
             IntPtr job = IntPtr.Zero;
+            string startupStage = "descriptor";
             try
             {
                 if (!LifecycleStorage.IsOpaqueInstanceId(instanceId))
@@ -1102,6 +1161,7 @@ namespace WorkspaceWidget.Native
                 string descriptorLine = ReadBoundedLine(Console.In, MaximumMessageBytes);
                 Dictionary<string, object> descriptor = LifecycleJson.Parse(descriptorLine);
                 RequireDescriptor(descriptor, instanceId);
+                startupStage = "launch-contract";
                 string instanceDirectory = LifecycleStorage.RequireDirectory(
                     LifecycleJson.String(descriptor, "instanceDirectory"), "instanceDirectory", false);
                 string itemId = LifecycleStorage.RequireNormalizedItemId(
@@ -1125,6 +1185,7 @@ namespace WorkspaceWidget.Native
                 string currentHostImage = LifecycleStorage.RequireFile(
                     Process.GetCurrentProcess().MainModule.FileName, "supervisorHost");
                 LifecycleStorage.ValidateLaunchContract(currentHostImage, executable, arguments);
+                startupStage = "capability";
                 byte[] capability = Convert.FromBase64String(LifecycleJson.String(descriptor, "capability"));
                 byte[] persistedCapability = LifecycleStorage.ReadCapability(instanceDirectory);
                 if (!LifecycleStorage.FixedEquals(capability, persistedCapability))
@@ -1134,18 +1195,23 @@ namespace WorkspaceWidget.Native
                 LifecyclePaths paths = LifecycleStorage.FromInstanceDirectory(instanceDirectory, itemId, instanceId);
                 string pipeName = "WorkspaceWidget.ManagedService." + instanceId;
 
+                startupStage = "preflight";
                 IList<int> listeners = NativeMethods.GetListeningProcessIds(health.Port);
                 if (listeners.Count != 0)
                 {
                     throw new InvalidOperationException("The configured health port became occupied before launch.");
                 }
 
+                startupStage = "job";
                 job = NativeMethods.CreateManagedJob();
+                startupStage = "console";
                 NativeMethods.PrepareHiddenConsole();
                 string gracefulAckPath = Path.Combine(instanceDirectory, "graceful-ack.txt");
                 string gracefulAckToken = Guid.NewGuid().ToString("N");
+                startupStage = "launch";
                 root = NativeMethods.CreateSuspendedProcess(executable, arguments, workingDirectory,
                     pathValue, gracefulAckPath, gracefulAckToken);
+                startupStage = "assign-job";
                 if (!NativeMethods.AssignProcessToJobObject(job, root.ProcessHandle))
                 {
                     int assignmentError = Marshal.GetLastWin32Error();
@@ -1153,6 +1219,7 @@ namespace WorkspaceWidget.Native
                     throw new InvalidOperationException("The service root could not be assigned to its lifecycle job.",
                         new System.ComponentModel.Win32Exception(assignmentError));
                 }
+                startupStage = "record";
                 LifecycleRecord record = LifecycleStorage.CreateRecord(
                     paths, itemId, instanceId, contractDigest, health.AbsoluteUri, pipeName,
                     capability, root, executable, arguments, workingDirectory);
@@ -1167,11 +1234,13 @@ namespace WorkspaceWidget.Native
                 // belongs to this kill-on-close job.  The child remains suspended until
                 // the authenticated ownership boundary exists.
                 LifecycleStorage.WriteOwnership(record, capability);
+                startupStage = "active-pointer";
                 LifecycleStorage.WriteActivePointer(paths, record, capability);
                 if (startupDelayMilliseconds < 0)
                 {
                     Thread.Sleep(-startupDelayMilliseconds);
                 }
+                startupStage = "resume";
                 if (NativeMethods.ResumeThread(root.ThreadHandle) == UInt32.MaxValue)
                 {
                     throw new InvalidOperationException("The service root could not be resumed.",
@@ -1184,6 +1253,7 @@ namespace WorkspaceWidget.Native
                 Console.Out.WriteLine(started);
                 Console.Out.Flush();
 
+                startupStage = "pipe";
                 using (NamedPipeServerStream server = CreateServer(pipeName))
                 {
                     while (true)
@@ -1240,7 +1310,7 @@ namespace WorkspaceWidget.Native
             {
                 Console.Out.WriteLine(LifecycleJson.Result(false, "Ambiguous", false, false,
                     Process.GetCurrentProcess().Id, root == null ? 0 : root.ProcessId,
-                    instanceId, null, exception.Message, false, false));
+                    instanceId, null, BuildStartupDiagnostic(startupStage, exception), false, false));
                 Console.Out.Flush();
                 return 1;
             }
@@ -1249,6 +1319,25 @@ namespace WorkspaceWidget.Native
                 if (root != null) { root.Dispose(); }
                 if (job != IntPtr.Zero) { NativeMethods.CloseHandle(job); }
             }
+        }
+
+        private static string BuildStartupDiagnostic(string stage, Exception exception)
+        {
+            string safeStage = Regex.IsMatch(stage ?? String.Empty,
+                "^(descriptor|launch-contract|capability|preflight|job|console|launch|assign-job|record|active-pointer|resume|pipe)$",
+                RegexOptions.CultureInvariant) ? stage : "unknown";
+            int nativeError = 0;
+            for (Exception current = exception; current != null; current = current.InnerException)
+            {
+                System.ComponentModel.Win32Exception win32 = current as System.ComponentModel.Win32Exception;
+                if (win32 != null)
+                {
+                    nativeError = win32.NativeErrorCode;
+                    break;
+                }
+            }
+            return "supervisor-stage=" + safeStage + ";native-error=" +
+                nativeError.ToString(CultureInfo.InvariantCulture);
         }
 
         private static string HandleRequest(

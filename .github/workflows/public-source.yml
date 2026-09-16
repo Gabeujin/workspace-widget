@@ -120,6 +120,11 @@ jobs:
             $verificationResult | ConvertTo-Json -Depth 8
             throw 'The development stage verification failed.'
           }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\Test-WorkspaceWidgetSupervisorDiagnostics.ps1 `
+            -HostPath (Join-Path $buildResult.stageRoot 'WorkspaceWidget.exe')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Bounded supervisor failure diagnostics failed.'
+          }
           $listener = [System.Net.Sockets.TcpListener]::new(
             [System.Net.IPAddress]::Loopback,
             0
