@@ -52,8 +52,9 @@ $script:healthStates = @{fixture=$true}
 $script:healthRefreshes = 0
 $script:status = [pscustomobject]@{state='RunningOwned';stoppable=$true}
 $script:result = [pscustomobject]@{state='Partial';success=$false;jobEmpty=$true;healthOffline=$false;receiptPath='fixture'}
+$script:state.window.language = 'en-US'
 Invoke-ServerLifecycleMenuAction -Item $item
-if ($script:toast -notlike 'Stop not confirmed*') { throw 'Failure was mislabeled as cancellation/success.' }
+if ($script:toast -ne ((Get-WidgetText 'Stop not confirmed for {0}. Check server status and the runtime log.') -f $item.name)) { throw 'English failure feedback did not match the localized template.' }
 if (!$script:serverProcesses.ContainsKey('fixture') -or !$script:pendingOpen.ContainsKey('fixture') -or !$script:healthStates.fixture) {
   throw 'Partial stop discarded retained state.'
 }
@@ -65,8 +66,25 @@ if ([WorkspaceWidget.Native.ManagedServiceClient]::Timeout -ne 40000 -or [Worksp
 }
 $script:result.state='Graceful'; $script:result.success=$true; $script:result.healthOffline=$true
 Invoke-ServerLifecycleMenuAction -Item $item
-if ($script:toast -ne 'Stopped Fixture' -or $script:serverProcesses.ContainsKey('fixture') -or $script:pendingOpen.ContainsKey('fixture') -or $script:healthStates.fixture -or $script:healthRefreshes -ne 1) {
+if ($script:toast -ne ((Get-WidgetText 'Stopped {0}') -f $item.name) -or $script:serverProcesses.ContainsKey('fixture') -or $script:pendingOpen.ContainsKey('fixture') -or $script:healthStates.fixture -or $script:healthRefreshes -ne 1) {
   throw 'Verified stop did not clear pending state and refresh health.'
+}
+$script:state.window.language = 'ko-KR'
+$script:serverProcesses = @{fixture='retained'}
+$script:pendingOpen = @{fixture='retained'}
+$script:healthStates = @{fixture=$true}
+$script:healthRefreshes = 0
+$script:status = [pscustomobject]@{state='RunningOwned';stoppable=$true}
+$script:result = [pscustomobject]@{state='Partial';success=$false;jobEmpty=$true;healthOffline=$false;receiptPath='fixture'}
+Invoke-ServerLifecycleMenuAction -Item $item
+if ($script:toast -ne ((Get-WidgetText 'Stop not confirmed for {0}. Check server status and the runtime log.') -f $item.name)) { throw 'Korean failure feedback did not match the localized template.' }
+if (!$script:serverProcesses.ContainsKey('fixture') -or !$script:pendingOpen.ContainsKey('fixture') -or !$script:healthStates.fixture) {
+  throw 'Korean partial stop discarded retained state.'
+}
+$script:result.state='Graceful'; $script:result.success=$true; $script:result.healthOffline=$true
+Invoke-ServerLifecycleMenuAction -Item $item
+if ($script:toast -ne ((Get-WidgetText 'Stopped {0}') -f $item.name) -or $script:serverProcesses.ContainsKey('fixture') -or $script:pendingOpen.ContainsKey('fixture') -or $script:healthStates.fixture -or $script:healthRefreshes -ne 1) {
+  throw 'Korean verified stop did not clear pending state and refresh health.'
 }
 $script:status = [pscustomobject]@{state='RunningUnowned';stoppable=$false}
 $calls = [WorkspaceWidget.Native.ManagedServiceClient]::Calls
@@ -76,4 +94,4 @@ $script:status = [pscustomobject]@{state='RunningOwned';stoppable=$true}
 $script:result.state='NeedsForce'; $script:result.success=$false
 if (Stop-TrackedLocalServer -Item $item) { throw 'Timeout was accepted as a stop.' }
 if ([WorkspaceWidget.Native.ManagedServiceClient]::Force) { throw 'Force was used without confirmation.' }
-[pscustomobject]@{success=$true;checks=10;scope='Actual Stop-TrackedLocalServer uses production health/stop contract helpers with mock StopV2Async transport; no real processes or user state changed'} | ConvertTo-Json
+[pscustomobject]@{success=$true;checks=14;scope='Actual Stop-TrackedLocalServer uses production health/stop contract helpers with mock StopV2Async transport; no real processes or user state changed'} | ConvertTo-Json
