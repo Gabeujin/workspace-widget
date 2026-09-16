@@ -4834,7 +4834,7 @@ function Queue-NodeStart {
     if ($OpenWhenHealthy) {
       Open-ItemTarget -Item $Item
     } else {
-      Show-Toast -Message "$($Item.name) is already online"
+      Show-Toast -Message ((Get-WidgetText '{0} is already online') -f $Item.name)
     }
     return
   }
@@ -4851,17 +4851,17 @@ function Queue-NodeStart {
   if ($healthKnown) {
     if ($RestartTrackedProcess) {
       if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce -AllowMissing)) {
-        Show-Toast -Message "Restart not performed: stop was not confirmed for $($Item.name)"
+        Show-Toast -Message ((Get-WidgetText 'Restart not performed: stop was not confirmed for {0}') -f $Item.name)
         return
       }
     }
     Start-LocalServer -Item $Item | Out-Null
     $pending.startupRequested = $true
-    $startVerb = if ($RestartTrackedProcess) { 'Restarting' } else { 'Starting' }
-    Show-Toast -Message "$startVerb $($Item.name) with bundled Node"
+    $startMessage = if ($RestartTrackedProcess) { 'Restarting {0} with bundled Node' } else { 'Starting {0} with bundled Node' }
+    Show-Toast -Message ((Get-WidgetText $startMessage) -f $Item.name)
   } else {
-    $startPurpose = if ($RestartTrackedProcess) { 'restart' } else { 'start' }
-    Show-Toast -Message "Checking $($Item.name) before $startPurpose"
+    $startMessage = if ($RestartTrackedProcess) { 'Checking {0} before restart' } else { 'Checking {0} before start' }
+    Show-Toast -Message ((Get-WidgetText $startMessage) -f $Item.name)
   }
 
   $script:pendingOpen[$itemId] = $pending
@@ -4893,14 +4893,14 @@ function Invoke-ServerLifecycleMenuAction {
   $itemId = [string]$Item.id
   if (Test-TrackedLocalServer -Item $Item) {
     if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce)) {
-      Show-Toast -Message "Stop not confirmed for $($Item.name). Check server status and the runtime log."
+      Show-Toast -Message ((Get-WidgetText 'Stop not confirmed for {0}. Check server status and the runtime log.') -f $Item.name)
       return
     }
     if ($script:pendingOpen.ContainsKey($itemId)) {
       [void]$script:pendingOpen.Remove($itemId)
     }
     $script:healthStates[$itemId] = $false
-    Show-Toast -Message "Stopped $($Item.name)"
+    Show-Toast -Message ((Get-WidgetText 'Stopped {0}') -f $Item.name)
     Start-HealthCheck
     return
   }
@@ -4918,8 +4918,8 @@ function Set-ServerRecoveryMenuState {
   $item = $MenuItem.Tag
   $itemId = [string]$item.id
   if ([bool]$Ownership.stoppable) {
-    $MenuItem.Header = 'Stop server...'
-    $MenuItem.ToolTip = 'Ownership is verified against the saved launch and live supervisor, not the application code. Stop requests cleanup; a verified force-stop needs confirmation after timeout.'
+    $MenuItem.Header = Get-WidgetText 'Stop server...'
+    $MenuItem.ToolTip = Get-WidgetText 'Ownership is verified against the saved launch and live supervisor, not the application code. Stop requests cleanup; a verified force-stop needs confirmation after timeout.'
     $MenuItem.IsEnabled = $true
     return
   }
@@ -4927,20 +4927,20 @@ function Set-ServerRecoveryMenuState {
   $healthKnown = $script:healthStates.ContainsKey($itemId)
   $healthy = $healthKnown -and [bool]$script:healthStates[$itemId]
   if ($Ownership.state -in @('RunningUnowned', 'Ambiguous')) {
-    $MenuItem.Header = 'Server ownership not verified'
-    $MenuItem.ToolTip = 'This server was started outside the current verified launch contract. Use its own controls to stop it.'
+    $MenuItem.Header = Get-WidgetText 'Server ownership not verified'
+    $MenuItem.ToolTip = Get-WidgetText 'This server was started outside the current verified launch contract. Use its own controls to stop it.'
     $MenuItem.IsEnabled = $false
     return
   }
   if ($healthy) {
-    $MenuItem.Header = 'Server is online'
-    $MenuItem.ToolTip = 'The configured health endpoint is responding.'
+    $MenuItem.Header = Get-WidgetText 'Server is online'
+    $MenuItem.ToolTip = Get-WidgetText 'The configured health endpoint is responding.'
     $MenuItem.IsEnabled = $false
     return
   }
 
-  $MenuItem.Header = if ($healthKnown) { 'Restart server' } else { 'Check and restart server' }
-  $MenuItem.ToolTip = 'Runs the trusted Node start target and waits for the health endpoint.'
+  $MenuItem.Header = Get-WidgetText $(if ($healthKnown) { 'Restart server' } else { 'Check and restart server' })
+  $MenuItem.ToolTip = Get-WidgetText 'Runs the trusted Node start target and waits for the health endpoint.'
   $MenuItem.IsEnabled = $true
 }
 
@@ -4948,8 +4948,8 @@ function Update-ServerRecoveryMenuItem {
   param($MenuItem)
 
   if ($null -eq $MenuItem -or $null -eq $MenuItem.Tag) { return }
-  $MenuItem.Header = 'Checking server ownership...'
-  $MenuItem.ToolTip = 'Checking the saved launch and its live supervisor.'
+  $MenuItem.Header = Get-WidgetText 'Checking server ownership...'
+  $MenuItem.ToolTip = Get-WidgetText 'Checking the saved launch and its live supervisor.'
   $MenuItem.IsEnabled = $false
   try {
     Initialize-ManagedServerClient
@@ -7233,7 +7233,7 @@ function New-LauncherCard {
 
   $remove = New-ContextMenuItem -Header 'Remove shortcut...'
   $remove.Foreground = Convert-ToBrush '#FFFFA7B4'
-  $remove.ToolTip = 'Removes only this Workspace entry. The original target stays untouched.'
+  $remove.ToolTip = Get-WidgetText 'Removes only this Workspace entry. The original target stays untouched.'
   $remove.Tag = $Item
   $remove.Add_Click({
       param($sender, $eventArgs)
@@ -7388,13 +7388,13 @@ function Complete-HealthCheck {
         if ($openWhenHealthy) {
           try {
             Open-ItemTarget -Item $pendingOpen.item
-            Show-Toast -Message "$($pendingOpen.item.name) is ready"
+            Show-Toast -Message ((Get-WidgetText '{0} is ready') -f $pendingOpen.item.name)
           } catch {
-            Show-Toast -Message "Could not open $($pendingOpen.item.name)"
+            Show-Toast -Message ((Get-WidgetText 'Could not open {0}') -f $pendingOpen.item.name)
             Write-RuntimeLog "Ready target open failed for '$itemId'. $($_.Exception.Message)"
           }
         } else {
-          Show-Toast -Message "$($pendingOpen.item.name) is online"
+          Show-Toast -Message ((Get-WidgetText '{0} is online') -f $pendingOpen.item.name)
         }
         $script:pendingOpen.Remove($itemId)
       } elseif (-not [bool]$pendingOpen.startupRequested) {
@@ -7405,26 +7405,26 @@ function Complete-HealthCheck {
           ) {
             if (-not (Stop-TrackedLocalServer -Item $pendingOpen.item -ConfirmForce -AllowMissing)) {
               $script:pendingOpen.Remove($itemId)
-              Show-Toast -Message "Restart canceled for $($pendingOpen.item.name)"
+              Show-Toast -Message ((Get-WidgetText 'Restart canceled for {0}') -f $pendingOpen.item.name)
               continue
             }
           }
           Start-LocalServer -Item $pendingOpen.item | Out-Null
           $pendingOpen.startupRequested = $true
           $pendingOpen.deadline = (Get-Date).AddSeconds(30)
-          $startVerb = if (
+          $startMessage = if (
             $pendingOpen.PSObject.Properties.Name -contains 'restartTrackedProcess' -and
             [bool]$pendingOpen.restartTrackedProcess
-          ) { 'Restarting' } else { 'Starting' }
-          Show-Toast -Message "$startVerb $($pendingOpen.item.name) with bundled Node"
+          ) { 'Restarting {0} with bundled Node' } else { 'Starting {0} with bundled Node' }
+          Show-Toast -Message ((Get-WidgetText $startMessage) -f $pendingOpen.item.name)
         } catch {
           $script:pendingOpen.Remove($itemId)
-          Show-Toast -Message "Could not start $($pendingOpen.item.name)"
+          Show-Toast -Message ((Get-WidgetText 'Could not start {0}') -f $pendingOpen.item.name)
           Write-RuntimeLog "Bundled Node start failed for '$itemId'. $($_.Exception.Message)"
         }
       } elseif ((Get-Date) -ge [datetime]$pendingOpen.deadline) {
         $script:pendingOpen.Remove($itemId)
-        Show-Toast -Message "$($pendingOpen.item.name) did not become healthy"
+        Show-Toast -Message ((Get-WidgetText '{0} did not become healthy') -f $pendingOpen.item.name)
         Write-RuntimeLog "Bundled Node start timed out for '$itemId'."
       }
     }
@@ -8046,7 +8046,7 @@ $xaml = @'
               FontSize="11"
               VerticalAlignment="Center"
               Margin="0,9,18,0"
-              ToolTip="Use a 96 px icon rail that snaps to the nearest screen edge." />
+              ToolTip="Use a 96 px icon rail that can snap to the nearest screen edge when edge snapping is enabled." />
             <CheckBox
               x:Name="StartWithWindowsCheck"
               Grid.Row="3"
@@ -9090,8 +9090,8 @@ function Hide-WorkspaceToTray {
   Write-RuntimeLog 'Workspace hidden to tray.'
   if (-not $script:trayHintShown -and $null -ne $script:trayIcon) {
     $script:trayHintShown = $true
-    $script:trayIcon.BalloonTipTitle = 'Workspace is still running'
-    $script:trayIcon.BalloonTipText = 'Choose Exit Widget in the tray to close the launcher. Servers keep running; stop them from their cards.'
+    $script:trayIcon.BalloonTipTitle = Get-WidgetText 'Workspace is still running'
+    $script:trayIcon.BalloonTipText = Get-WidgetText 'Choose Exit Widget in the tray to close the launcher. Servers keep running; stop them from their cards.'
     $script:trayIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
     $script:trayIcon.ShowBalloonTip(2500)
   }
@@ -9129,12 +9129,9 @@ function Set-AutostartUiFromResult {
           Get-WidgetText 'On · policy'
         }
         $script:startWithWindowsCheck.ToolTip = if ($userCanControl) {
-          (
-            'Workspace Widget starts after Windows sign-in. ' +
-            'You can also control this in Windows Startup Apps settings.'
-          )
+          (Get-WidgetText 'Workspace Widget starts after Windows sign-in. You can also control this in Windows Startup Apps settings.')
         } else {
-          'A Windows or organization policy keeps this startup entry enabled.'
+          Get-WidgetText 'A Windows or organization policy keeps this startup entry enabled.'
         }
       }
       'Disabled' {
@@ -9152,8 +9149,7 @@ function Set-AutostartUiFromResult {
         $script:startWithWindowsCheck.IsEnabled = $false
         $script:autostartStatusText.Text = Get-WidgetText 'Off · Windows setting'
         $script:startWithWindowsCheck.ToolTip = (
-          'Windows Startup Apps settings disabled Workspace Widget. ' +
-          'Re-enable it from Settings > Apps > Startup.'
+          Get-WidgetText 'Windows Startup Apps settings disabled Workspace Widget. Re-enable it from Settings > Apps > Startup.'
         )
       }
       'DisabledByPolicy' {
@@ -9162,7 +9158,7 @@ function Set-AutostartUiFromResult {
         $script:startWithWindowsCheck.IsEnabled = $false
         $script:autostartStatusText.Text = 'Blocked by policy'
         $script:startWithWindowsCheck.ToolTip = (
-          'A Windows or organization policy controls this startup entry.'
+          Get-WidgetText 'A Windows or organization policy controls this startup entry.'
         )
       }
       'Missing' {
@@ -9171,7 +9167,7 @@ function Set-AutostartUiFromResult {
         $script:startWithWindowsCheck.IsEnabled = $true
         $script:autostartStatusText.Text = 'Off · not registered'
         $script:startWithWindowsCheck.ToolTip = (
-          'Turn this on to register Workspace Widget for Windows sign-in.'
+          Get-WidgetText 'Turn this on to register Workspace Widget for Windows sign-in.'
         )
       }
       'Drifted' {
@@ -9189,7 +9185,7 @@ function Set-AutostartUiFromResult {
         $script:startWithWindowsCheck.IsEnabled = $false
         $script:autostartStatusText.Text = 'Permission blocked'
         $script:startWithWindowsCheck.ToolTip = (
-          'Windows did not allow this account to inspect or change startup.'
+          Get-WidgetText 'Windows did not allow this account to inspect or change startup.'
         )
       }
       default {
@@ -9197,7 +9193,7 @@ function Set-AutostartUiFromResult {
         $script:startWithWindowsCheck.IsChecked = $null
         $script:startWithWindowsCheck.IsEnabled = $false
         $script:autostartStatusText.Text = 'Unavailable'
-        $script:startWithWindowsCheck.ToolTip = 'Autostart status is unavailable.'
+        $script:startWithWindowsCheck.ToolTip = Get-WidgetText 'Autostart status is unavailable.'
       }
     }
   } finally {
@@ -9227,7 +9223,7 @@ function Start-AutostartOperation {
   }
   if (-not (Test-Path -LiteralPath $nativeHostPath -PathType Leaf)) {
     Set-AutostartUiFromResult -Result ([pscustomobject]@{ state = 'Unavailable' })
-    Show-Toast -Message 'Workspace Widget host is missing'
+    Show-Toast -Message (Get-WidgetText 'Workspace Widget host is missing')
     return
   }
 
@@ -9267,7 +9263,7 @@ function Start-AutostartOperation {
     $script:autostartStartedAt = $null
     Set-AutostartUiFromResult -Result ([pscustomobject]@{ state = 'PermissionDenied' })
     Write-RuntimeLog "Autostart $Action could not start. $($_.Exception.Message)"
-    Show-Toast -Message 'Could not update Windows startup'
+    Show-Toast -Message (Get-WidgetText 'Could not update Windows startup')
   }
 }
 
@@ -9299,7 +9295,7 @@ function Complete-AutostartOperation {
     $timedOutProcess.Dispose()
     Set-AutostartUiFromResult -Result ([pscustomobject]@{ state = 'Unavailable' })
     Write-RuntimeLog "Autostart $timedOutAction timed out after 12 seconds."
-    Show-Toast -Message 'Windows startup check timed out'
+    Show-Toast -Message (Get-WidgetText 'Windows startup check timed out')
     return
   }
 
@@ -9331,11 +9327,11 @@ function Complete-AutostartOperation {
         $requestedAction -eq 'Enable' -and
         [string]$result.state -eq 'Enabled'
       ) {
-        Show-Toast -Message 'Starts with Windows at sign-in'
+        Show-Toast -Message (Get-WidgetText 'Starts with Windows at sign-in')
       } elseif ($requestedAction -eq 'Enable') {
-        Show-Toast -Message 'Windows startup remains off'
+        Show-Toast -Message (Get-WidgetText 'Windows startup remains off')
       } elseif ($requestedAction -eq 'Disable') {
-        Show-Toast -Message 'Windows startup is off'
+        Show-Toast -Message (Get-WidgetText 'Windows startup is off')
       }
       Write-RuntimeLog (
         "Autostart $requestedAction completed. state=$($result.state) " +
@@ -9348,12 +9344,12 @@ function Complete-AutostartOperation {
         $standardError
       }
       Write-RuntimeLog "Autostart $requestedAction failed. $errorMessage"
-      Show-Toast -Message 'Autostart needs installer repair'
+      Show-Toast -Message (Get-WidgetText 'Autostart needs installer repair')
     }
   } catch {
     Set-AutostartUiFromResult -Result ([pscustomobject]@{ state = 'Unavailable' })
     Write-RuntimeLog "Autostart $requestedAction response failed. $($_.Exception.Message)"
-    Show-Toast -Message 'Could not read Windows startup status'
+    Show-Toast -Message (Get-WidgetText 'Could not read Windows startup status')
   } finally {
     $process.Dispose()
   }
@@ -9516,7 +9512,7 @@ $script:backgroundVideo.Add_MediaFailed({
     Write-RuntimeLog "Background video playback failed. $message"
     Stop-BackgroundMedia
     $script:backgroundTint.Fill = Convert-ToBrush $script:themePalette.panel
-    Show-Toast 'Background video could not be played on this PC.'
+    Show-Toast (Get-WidgetText 'Background video could not be played on this PC.')
   })
 $script:hoverPreviewVideo.Add_MediaFailed({
     $message = $args[1].ErrorException.Message

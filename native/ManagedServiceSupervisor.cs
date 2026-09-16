@@ -517,10 +517,13 @@ namespace WorkspaceWidget.Native
                     Task<string> errors = ReadBoundedHelperText(helper.StandardError, 4096);
                     try
                     {
-                        if (!NativeMethods.WaitForProcessExit(helper.Process.ProcessHandle, bounded) ||
-                            !Task.WaitAll(new Task[] { output, errors }, bounded))
+                        if (!NativeMethods.WaitForProcessExit(helper.Process.ProcessHandle, bounded))
                         {
-                            throw new TimeoutException("The managed stop helper exceeded its bounded timeout.");
+                            throw new TimeoutException("The managed stop helper exceeded its bounded timeout (stage=process-exit).");
+                        }
+                        if (!Task.WaitAll(new Task[] { output, errors }, bounded))
+                        {
+                            throw new TimeoutException("The managed stop helper exceeded its bounded timeout (stage=output-drain).");
                         }
                     }
                     catch

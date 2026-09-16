@@ -205,3 +205,25 @@ native interaction, multi-monitor, clean-install or public release claim.
   UTF-16/32 and malformed bytes, CR-flood bounds and the exact 64 KiB limit.
   The broader lifecycle suite reached a separate crash-recovery restart failure;
   that remains under diagnosis and is not reported as passing.
+- Later evidence: an isolated crash-recovery reproduction passed with the
+  previous foreign process exited and port offline. A second complete local
+  lifecycle run passed all 27 checks, and hosted run `35051398753` also passed
+  that suite. The first failure remains recorded; no speculative recovery
+  implementation change was made.
+- Hosted run `35052048286` proved the next failure was the PowerShell stop
+  helper exceeding the fixture's 5-second budget, not an execution-policy
+  refusal. Align only that fixture with the production UI's 40-second graceful
+  request. The helper's independent 30-second cap, exact ownership/argument
+  binding and no-force assertions remain unchanged. Local V2 regression passed.
+- Final language review found feedback that bypassed the localized dialog tree.
+  Server start/stop/health toasts, recovery-menu states and tooltips, autostart
+  feedback, deletion safety text and background-video failure now use explicit
+  localized keys/templates. Technical logs and exception details are preserved.
+  MIN-rail copy explicitly conditions snapping on the edge-snap setting.
+- Hosted run `35052570359` still timed out with the production-aligned budget;
+  the shorter fixture budget was not a sufficient root-cause explanation.
+  Split sanitized helper timeout diagnostics into process-exit and output-drain
+  stages before changing process cleanup behavior. No raw helper output is exposed.
+  Final feedback localization regression passes 58 checks including tray warnings;
+  integrated appearance settings pass 63 assertions. Final packaging remains held
+  until the hosted lifecycle gate passes.
