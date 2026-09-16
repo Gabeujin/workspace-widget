@@ -72,6 +72,7 @@ jobs:
             'Test-WorkspaceWidgetExperience.ps1',
             'Test-WorkspaceWidgetRegistrationV5.ps1',
             'Test-WorkspaceWidgetLanguageContrast.ps1',
+            'Test-WorkspaceWidgetAppearanceSettings.ps1',
             'Test-WorkspaceWidgetComboBox.ps1',
             'Test-WorkspaceWidgetMotion.ps1',
             'Test-WorkspaceWidgetSharedOpacity.ps1',

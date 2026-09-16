@@ -16,6 +16,9 @@ certification.
   keep Start and Stop separate without adopting foreign port listeners.
 - Unify opacity and settings in an independently sized Korean/English dialog.
   Preserve readable collapsed, selected, hover and keyboard-focus colors.
+- Move theme and background-media editing into that same Settings window.
+  Localize preset names, help and validation without changing saved theme IDs;
+  keep appearance drafts separate until Apply.
 - Share resting opacity across full and MIN modes, preserving the last active
   legacy mode's setting on upgrade. Stage content during bounds transitions so
   full-size cards are not exposed inside the narrow icon rail.

@@ -6531,7 +6531,7 @@ function Apply-Appearance {
     Set-ColorAlpha -Color $script:themePalette.border -Alpha 32
   )
   $script:headerTitleText.Foreground = Convert-ToBrush $script:themePalette.text
-  $script:appearanceStatusText.Text = [string]$script:themePalette.name
+  $script:appearanceStatusText.Text = Get-WidgetText ([string]$script:themePalette.name)
   Apply-BackgroundMedia
   if (-not $SkipRender -and $null -ne $script:wrapPanel) {
     Render-Items
@@ -6539,334 +6539,10 @@ function Apply-Appearance {
 }
 
 function Show-AppearanceDialog {
-  $appearance = $script:state.window.appearance
-  $dialog = [System.Windows.Window]::new()
-  $dialog.Title = 'Appearance & media'
-  $dialog.Owner = $script:window
-  $dialog.WindowStartupLocation = [System.Windows.WindowStartupLocation]::CenterOwner
-  $dialog.WindowStyle = [System.Windows.WindowStyle]::None
-  $dialog.ResizeMode = [System.Windows.ResizeMode]::NoResize
-  $dialog.Width = 500
-  $dialog.SizeToContent = [System.Windows.SizeToContent]::Height
-  $dialog.AllowsTransparency = $true
-  $dialog.Background = [System.Windows.Media.Brushes]::Transparent
-  $dialog.ShowInTaskbar = $false
-
-  $outer = [System.Windows.Controls.Border]::new()
-  $outer.CornerRadius = [System.Windows.CornerRadius]::new(16)
-  $outer.Background = Convert-ToBrush '#FF09162B'
-  $outer.BorderBrush = Convert-ToBrush $script:themePalette.border
-  $outer.BorderThickness = [System.Windows.Thickness]::new(1)
-  $outer.Padding = [System.Windows.Thickness]::new(22)
-  $dialog.Content = $outer
-
-  $stack = [System.Windows.Controls.StackPanel]::new()
-  $outer.Child = $stack
-  $title = New-TextBlock -Text 'Appearance & media' -Size 20 -Weight 'SemiBold'
-  $title.Margin = [System.Windows.Thickness]::new(0, 0, 0, 5)
-  $stack.Children.Add($title) | Out-Null
-  $intro = New-TextBlock `
-    -Text 'Use a preset or custom colors, then add a local image, GIF, video, or YouTube poster as the widget background.' `
-    -Size 10 `
-    -Color '#FFA9B9D1'
-  $intro.TextWrapping = [System.Windows.TextWrapping]::Wrap
-  $intro.Margin = [System.Windows.Thickness]::new(0, 0, 0, 15)
-  $stack.Children.Add($intro) | Out-Null
-
-  $themeLabel = New-TextBlock -Text 'Theme' -Size 11 -Color '#FFA9B9D1'
-  $themeLabel.Margin = [System.Windows.Thickness]::new(0, 0, 0, 5)
-  $stack.Children.Add($themeLabel) | Out-Null
-  $themeBox = [System.Windows.Controls.ComboBox]::new()
-  foreach ($themeName in @('Midnight', 'Neon', 'Sakura', 'Monochrome', 'Custom')) {
-    $themeBox.Items.Add($themeName) | Out-Null
-  }
-  $themeBox.SelectedItem = [string]$appearance.theme
-  if ($themeBox.SelectedIndex -lt 0) {
-    $themeBox.SelectedItem = 'Midnight'
-  }
-  $themeBox.Height = 34
-  $themeBox.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
-  $themeBox.Background = Convert-ToBrush '#FF0F203B'
-  $themeBox.Foreground = Convert-ToBrush '#FFF6F9FF'
-  $themeBox.MaxDropDownHeight = 294
-  Set-DialogComboBoxStyle -ComboBox $themeBox
-  $stack.Children.Add($themeBox) | Out-Null
-
-  function Add-AppearanceTextField {
-    param([string]$Label, [string]$Value, [string]$Help)
-
-    $labelBlock = New-TextBlock -Text $Label -Size 11 -Color '#FFA9B9D1'
-    $labelBlock.Margin = [System.Windows.Thickness]::new(0, 0, 0, 5)
-    $stack.Children.Add($labelBlock) | Out-Null
-    $box = [System.Windows.Controls.TextBox]::new()
-    $box.Text = $Value
-    $box.Height = 34
-    $box.Padding = [System.Windows.Thickness]::new(9, 6, 9, 6)
-    $box.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
-    $box.Background = Convert-ToBrush '#FF0F203B'
-    $box.Foreground = Convert-ToBrush '#FFF6F9FF'
-    $box.BorderBrush = Convert-ToBrush '#665C8AC6'
-    $box.ToolTip = $Help
-    $stack.Children.Add($box) | Out-Null
-    return $box
-  }
-
-  $colors = [System.Windows.Controls.Grid]::new()
-  $colors.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new()) | Out-Null
-  $colors.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new()) | Out-Null
-  $colors.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
-  $stack.Children.Add($colors) | Out-Null
-
-  function Add-ColorField {
-    param(
-      [Parameter(Mandatory = $true)]
-      [System.Windows.Controls.Grid]$Grid,
-      [string]$Label,
-      [string]$Value,
-      [int]$Column
-    )
-
-    $panel = [System.Windows.Controls.StackPanel]::new()
-    $panel.Margin = if ($Column -eq 0) {
-      [System.Windows.Thickness]::new(0, 0, 6, 0)
-    } else {
-      [System.Windows.Thickness]::new(6, 0, 0, 0)
-    }
-    [System.Windows.Controls.Grid]::SetColumn($panel, $Column)
-    $Grid.Children.Add($panel) | Out-Null
-    $labelBlock = New-TextBlock -Text $Label -Size 10 -Color '#FFA9B9D1'
-    $labelBlock.Margin = [System.Windows.Thickness]::new(0, 0, 0, 4)
-    $panel.Children.Add($labelBlock) | Out-Null
-    $box = [System.Windows.Controls.TextBox]::new()
-    $box.Text = $Value
-    $box.Height = 32
-    $box.Padding = [System.Windows.Thickness]::new(8, 5, 8, 5)
-    $box.Background = Convert-ToBrush '#FF0F203B'
-    $box.Foreground = Convert-ToBrush '#FFF6F9FF'
-    $box.BorderBrush = Convert-ToBrush '#665C8AC6'
-    $panel.Children.Add($box) | Out-Null
-    return $box
-  }
-
-  $accentBox = Add-ColorField -Grid $colors -Label 'Accent ARGB' -Value ([string]$appearance.accentColor) -Column 0
-  $panelColorBox = Add-ColorField -Grid $colors -Label 'Panel ARGB' -Value ([string]$appearance.panelColor) -Column 1
-
-  $cardColors = [System.Windows.Controls.Grid]::new()
-  $cardColors.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new()) | Out-Null
-  $cardColors.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new()) | Out-Null
-  $cardColors.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
-  $stack.Children.Add($cardColors) | Out-Null
-  $cardColorBox = Add-ColorField -Grid $cardColors -Label 'Shortcut card ARGB' -Value ([string]$appearance.cardColor) -Column 0
-  $cardHoverColorBox = Add-ColorField -Grid $cardColors -Label 'Card hover ARGB' -Value ([string]$appearance.cardHoverColor) -Column 1
-  $textColorBox = Add-AppearanceTextField `
-    -Label 'Primary text ARGB' `
-    -Value ([string]$appearance.textColor) `
-    -Help 'Used by the Custom theme for primary labels and shortcut names.'
-
-  $mediaLabel = New-TextBlock -Text 'Background media' -Size 11 -Color '#FFA9B9D1'
-  $mediaLabel.Margin = [System.Windows.Thickness]::new(0, 0, 0, 5)
-  $stack.Children.Add($mediaLabel) | Out-Null
-  $mediaGrid = [System.Windows.Controls.Grid]::new()
-  $mediaGrid.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new()) | Out-Null
-  $browseColumn = [System.Windows.Controls.ColumnDefinition]::new()
-  $browseColumn.Width = [System.Windows.GridLength]::Auto
-  $mediaGrid.ColumnDefinitions.Add($browseColumn) | Out-Null
-  $mediaGrid.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
-  $stack.Children.Add($mediaGrid) | Out-Null
-  $backgroundBox = [System.Windows.Controls.TextBox]::new()
-  $backgroundBox.Text = [string]$appearance.backgroundMedia
-  $backgroundBox.Height = 34
-  $backgroundBox.Padding = [System.Windows.Thickness]::new(9, 6, 9, 6)
-  $backgroundBox.Background = Convert-ToBrush '#FF0F203B'
-  $backgroundBox.Foreground = Convert-ToBrush '#FFF6F9FF'
-  $backgroundBox.BorderBrush = Convert-ToBrush '#665C8AC6'
-  $backgroundBox.ToolTip = 'Local image/GIF/video, public HTTPS image, or YouTube link.'
-  $mediaGrid.Children.Add($backgroundBox) | Out-Null
-  $browse = [System.Windows.Controls.Button]::new()
-  $browse.Content = 'Browse...'
-  $browse.Width = 82
-  $browse.Height = 34
-  $browse.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
-  $browse.Background = Convert-ToBrush '#FF172A47'
-  $browse.Foreground = Convert-ToBrush '#FFF6F9FF'
-  $browse.BorderBrush = Convert-ToBrush '#665C8AC6'
-  $browse.Template = New-ButtonTemplate
-  [System.Windows.Controls.Grid]::SetColumn($browse, 1)
-  $mediaGrid.Children.Add($browse) | Out-Null
-  $browse.Add_Click({
-      $picker = [Microsoft.Win32.OpenFileDialog]::new()
-      $picker.Title = 'Choose Workspace background media'
-      $picker.Filter = 'Supported media|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.mp4;*.m4v;*.wmv;*.avi;*.mov|Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif|Videos|*.mp4;*.m4v;*.wmv;*.avi;*.mov|All files|*.*'
-      if ($picker.ShowDialog($dialog)) {
-        $backgroundBox.Text = $picker.FileName
-      }
-    })
-
-  $opacityRow = [System.Windows.Controls.Grid]::new()
-  $opacityRow.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new()) | Out-Null
-  $opacityValueColumn = [System.Windows.Controls.ColumnDefinition]::new()
-  $opacityValueColumn.Width = [System.Windows.GridLength]::Auto
-  $opacityRow.ColumnDefinitions.Add($opacityValueColumn) | Out-Null
-  $opacityRow.Margin = [System.Windows.Thickness]::new(0, 0, 0, 10)
-  $stack.Children.Add($opacityRow) | Out-Null
-  $mediaOpacity = [System.Windows.Controls.Slider]::new()
-  $mediaOpacity.Minimum = 0.05
-  $mediaOpacity.Maximum = 1.0
-  $mediaOpacity.SmallChange = 0.05
-  $mediaOpacity.Value = [double]$appearance.backgroundMediaOpacity
-  $mediaOpacity.ToolTip = 'Background media opacity'
-  $opacityRow.Children.Add($mediaOpacity) | Out-Null
-  $mediaOpacityText = New-TextBlock -Text ('{0:P0}' -f $mediaOpacity.Value) -Size 11
-  $mediaOpacityText.Width = 48
-  $mediaOpacityText.TextAlignment = [System.Windows.TextAlignment]::Right
-  [System.Windows.Controls.Grid]::SetColumn($mediaOpacityText, 1)
-  $opacityRow.Children.Add($mediaOpacityText) | Out-Null
-  $mediaOpacity.Add_ValueChanged({
-      $mediaOpacityText.Text = '{0:P0}' -f $mediaOpacity.Value
-    })
-
-  $muteBackground = [System.Windows.Controls.CheckBox]::new()
-  $muteBackground.Content = 'Mute background video'
-  $muteBackground.IsChecked = [bool]$appearance.backgroundVideoMuted
-  $muteBackground.Foreground = Convert-ToBrush '#FFC6D2E5'
-  $muteBackground.FontSize = 11
-  $muteBackground.Margin = [System.Windows.Thickness]::new(0, 0, 0, 14)
-  $stack.Children.Add($muteBackground) | Out-Null
-
-  $rights = New-TextBlock `
-    -Text 'Only use media you trust and have permission to display. YouTube playback uses the privacy-enhanced embed domain when WebView2 is available.' `
-    -Size 9 `
-    -Color '#FF7D91AE'
-  $rights.TextWrapping = [System.Windows.TextWrapping]::Wrap
-  $rights.Margin = [System.Windows.Thickness]::new(0, 0, 0, 14)
-  $stack.Children.Add($rights) | Out-Null
-
-  $buttons = [System.Windows.Controls.StackPanel]::new()
-  $buttons.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-  $buttons.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
-  $stack.Children.Add($buttons) | Out-Null
-  $clear = [System.Windows.Controls.Button]::new()
-  $clear.Content = 'Clear media'
-  $clear.Width = 92
-  $clear.Height = 34
-  $clear.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
-  $clear.Background = Convert-ToBrush '#FF172A47'
-  $clear.Foreground = Convert-ToBrush '#FFF6F9FF'
-  $clear.BorderBrush = Convert-ToBrush '#665C8AC6'
-  $clear.Template = New-ButtonTemplate
-  $clear.Add_Click({ $backgroundBox.Text = '' })
-  $buttons.Children.Add($clear) | Out-Null
-  $cancel = [System.Windows.Controls.Button]::new()
-  $cancel.Content = 'Cancel'
-  $cancel.IsCancel = $true
-  $cancel.Width = 82
-  $cancel.Height = 34
-  $cancel.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
-  $cancel.Background = Convert-ToBrush '#FF172A47'
-  $cancel.Foreground = Convert-ToBrush '#FFF6F9FF'
-  $cancel.BorderBrush = Convert-ToBrush '#665C8AC6'
-  $cancel.Template = New-ButtonTemplate
-  $cancel.Add_Click({ $dialog.DialogResult = $false })
-  $buttons.Children.Add($cancel) | Out-Null
-  $apply = [System.Windows.Controls.Button]::new()
-  $apply.Content = 'Apply'
-  $apply.IsDefault = $true
-  $apply.Width = 82
-  $apply.Height = 34
-  $apply.Background = Convert-ToBrush '#FF1F6FD0'
-  $apply.Foreground = [System.Windows.Media.Brushes]::White
-  $apply.BorderBrush = Convert-ToBrush '#FF3E8BFF'
-  $apply.Template = New-ButtonTemplate
-  $buttons.Children.Add($apply) | Out-Null
-
-  $presetValues = @{
-    Midnight = @('#FF3E8BFF', '#EE09162B', '#E80F203B', '#F2162F56', '#FFF6F9FF')
-    Neon = @('#FF30F2FF', '#F0050812', '#E8111230', '#F5230B4C', '#FFF7FEFF')
-    Sakura = @('#FFFF6FAE', '#F01D1025', '#EA35172F', '#F34A2147', '#FFFFF6FB')
-    Monochrome = @('#FFAFC7FF', '#F016181D', '#EA23262D', '#F2383D47', '#FFF7F8FA')
-  }
-  $themeBox.Add_SelectionChanged({
-      $selectedTheme = [string]$themeBox.SelectedItem
-      if ($presetValues.ContainsKey($selectedTheme)) {
-        $accentBox.Text = $presetValues[$selectedTheme][0]
-        $panelColorBox.Text = $presetValues[$selectedTheme][1]
-        $cardColorBox.Text = $presetValues[$selectedTheme][2]
-        $cardHoverColorBox.Text = $presetValues[$selectedTheme][3]
-        $textColorBox.Text = $presetValues[$selectedTheme][4]
-      }
-    })
-
-  $apply.Add_Click({
-      $selectedTheme = [string]$themeBox.SelectedItem
-      $backgroundMedia = $backgroundBox.Text.Trim()
-      try {
-        Convert-ToBrush $accentBox.Text.Trim() | Out-Null
-        Convert-ToBrush $panelColorBox.Text.Trim() | Out-Null
-        Convert-ToBrush $cardColorBox.Text.Trim() | Out-Null
-        Convert-ToBrush $cardHoverColorBox.Text.Trim() | Out-Null
-        Convert-ToBrush $textColorBox.Text.Trim() | Out-Null
-      } catch {
-        [System.Windows.MessageBox]::Show(
-          $dialog,
-          'All colors must be valid #AARRGGBB or named WPF colors.',
-          'Workspace',
-          [System.Windows.MessageBoxButton]::OK,
-          [System.Windows.MessageBoxImage]::Information
-        ) | Out-Null
-        return
-      }
-      $backgroundKind = Resolve-MediaKind -Source $backgroundMedia -ConfiguredKind 'auto'
-      if (
-        -not [string]::IsNullOrWhiteSpace($backgroundMedia) -and
-        -not (Test-MediaSource -Source $backgroundMedia -ConfiguredKind $backgroundKind)
-      ) {
-        [System.Windows.MessageBox]::Show(
-          $dialog,
-          'Background media must be a supported local file, public HTTPS image, or YouTube link.',
-          'Workspace',
-          [System.Windows.MessageBoxButton]::OK,
-          [System.Windows.MessageBoxImage]::Information
-        ) | Out-Null
-        return
-      }
-
-      if ($selectedTheme -ne 'Custom' -and $presetValues.ContainsKey($selectedTheme)) {
-        $actualColors = @(
-          $accentBox.Text.Trim(),
-          $panelColorBox.Text.Trim(),
-          $cardColorBox.Text.Trim(),
-          $cardHoverColorBox.Text.Trim(),
-          $textColorBox.Text.Trim()
-        )
-        if ([string]::Join('|', $actualColors) -cne [string]::Join('|', $presetValues[$selectedTheme])) {
-          $selectedTheme = 'Custom'
-        }
-      }
-      $appearance.theme = $selectedTheme
-      $appearance.accentColor = $accentBox.Text.Trim()
-      $appearance.panelColor = $panelColorBox.Text.Trim()
-      $appearance.cardColor = $cardColorBox.Text.Trim()
-      $appearance.cardHoverColor = $cardHoverColorBox.Text.Trim()
-      $appearance.textColor = $textColorBox.Text.Trim()
-      $appearance.backgroundMedia = $backgroundMedia
-      $appearance.backgroundMediaKind = $backgroundKind
-      $appearance.backgroundMediaOpacity = [math]::Round([double]$mediaOpacity.Value, 2)
-      $appearance.backgroundVideoMuted = [bool]$muteBackground.IsChecked
-      Apply-Appearance
-      Save-State
-      $dialog.DialogResult = $true
-    })
-
-  $dialog.Add_MouseLeftButtonDown({
-      param($sender, $eventArgs)
-      if ($eventArgs.ChangedButton -eq [System.Windows.Input.MouseButton]::Left) {
-        try {
-          $dialog.DragMove()
-        } catch {
-        }
-      }
-    })
-  return $dialog.ShowDialog()
+  # Compatibility entry point for callers restored from an older widget script.
+  # Appearance now lives in the singleton settings window so draft changes remain
+  # isolated until its page-level Apply action succeeds.
+  Show-WidgetSettings -InitialPage Appearance
 }
 
 function Get-YouTubeEmbedUri {
@@ -9448,9 +9124,9 @@ function Set-AutostartUiFromResult {
         $script:startWithWindowsCheck.IsChecked = $true
         $script:startWithWindowsCheck.IsEnabled = $userCanControl
         $script:autostartStatusText.Text = if ($userCanControl) {
-          'On'
+          Get-WidgetText 'On'
         } else {
-          'On · policy'
+          Get-WidgetText 'On · policy'
         }
         $script:startWithWindowsCheck.ToolTip = if ($userCanControl) {
           (
@@ -9465,16 +9141,16 @@ function Set-AutostartUiFromResult {
         $script:startWithWindowsCheck.IsThreeState = $false
         $script:startWithWindowsCheck.IsChecked = $false
         $script:startWithWindowsCheck.IsEnabled = $userCanControl
-        $script:autostartStatusText.Text = 'Off'
+        $script:autostartStatusText.Text = Get-WidgetText 'Off'
         $script:startWithWindowsCheck.ToolTip = (
-          'Turn this on to start Workspace Widget after Windows sign-in.'
+          Get-WidgetText 'Turn this on to start Workspace Widget after Windows sign-in.'
         )
       }
       'DisabledByUser' {
         $script:startWithWindowsCheck.IsThreeState = $false
         $script:startWithWindowsCheck.IsChecked = $false
         $script:startWithWindowsCheck.IsEnabled = $false
-        $script:autostartStatusText.Text = 'Off · Windows setting'
+        $script:autostartStatusText.Text = Get-WidgetText 'Off · Windows setting'
         $script:startWithWindowsCheck.ToolTip = (
           'Windows Startup Apps settings disabled Workspace Widget. ' +
           'Re-enable it from Settings > Apps > Startup.'
@@ -9943,7 +9619,7 @@ $settingsToolbar.Add_Click({
     Show-WidgetSettings
   })
 $script:appearanceButton.Add_Click({
-    Show-AppearanceDialog | Out-Null
+    Show-WidgetSettings -InitialPage Appearance
   })
 
 $script:opacitySlider.Add_ValueChanged({

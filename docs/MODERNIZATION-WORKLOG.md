@@ -147,3 +147,33 @@ native interaction, multi-monitor, clean-install or public release claim.
 - This proves functional transitions and isolated monotonic bounds, not a measured
   display refresh rate or a post-fix video capture. The remote startup-probe CI
   failure and final public release/Store package remain separate open gates.
+
+### Appearance settings integration regression
+
+- A user screenshot identified a missed requirement: the appearance button still
+  opened an older independent English-only window. Dictionary entries and a
+  generic locale round trip did not prove that this actual editor was localized.
+- Move the editor into the singleton Settings window, with stable preset IDs
+  separate from localized display names. Appearance fields remain a draft until
+  Apply; invalid input and persistence failure must preserve the previous state.
+- Add production-WPF editor tests for Korean/English round trips, preset IDs,
+  input preservation, validation, apply/cancel, persistence rollback and layout.
+  Installed visual verification and final release gates are recorded separately.
+- The new fixture passed 63 assertions, including an owned selected-tab template
+  to avoid Windows light-theme overrides. The 47-assertion motion integration,
+  shared-opacity fixture and installed-product aggregate also passed.
+- Candidate 11 passed 19 development-stage checks and was copied into a fresh
+  installation with manifest hash readback. All 12 registrations, six existing
+  supervisors, MIN mode, 50% opacity and disabled startup preference were retained.
+- Native observation verified the Korean General page and readable dark tabs.
+  The automation surface could not target an owned Settings window beyond the
+  96-pixel parent rail. The user selected the Appearance tab; a fresh native
+  screenshot and accessibility tree then verified the integrated Korean editor,
+  localized preset, help, color labels and file-picker action. Apply/cancel and
+  locale round trips are covered by the isolated WPF fixture, not claimed as
+  user-desktop interaction. The user then closed the owned dialog.
+- A final correction synchronizes the selector to Custom after editing preset
+  colors. Candidate 12 passed the development-stage gate and replaced the UI in
+  another fresh directory with the same preservation checks. A bounded independent
+  source review found no P1/P2 defect in the new editor/integration; physical file
+  picker interaction and real media-decoder failures remain outside this fixture.

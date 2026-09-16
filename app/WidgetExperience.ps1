@@ -25,6 +25,15 @@ $script:widgetWords = @{
   'Choose existing start and stop scripts.'='실제로 존재하는 시작·종료 스크립트를 선택해 주세요.'
   'Theme'='테마'; 'Accent ARGB'='강조색 ARGB'; 'Panel ARGB'='패널색 ARGB'; 'Shortcut card ARGB'='카드색 ARGB'; 'Card hover ARGB'='마우스를 올린 카드색 ARGB'
   'Primary text ARGB'='기본 글자색 ARGB'; 'Background media'='배경 미디어'; 'Background opacity'='배경 불투명도'; 'Mute background video'='배경 영상 소리 끄기'
+  'General'='일반'; 'Apply'='적용'; 'Clear media'='미디어 지우기'; 'Custom'='사용자 지정'; 'Midnight'='미드나이트'; 'Neon'='네온'; 'Sakura'='사쿠라'; 'Monochrome'='모노크롬'
+  'Use a preset or custom colors, then add a local image, GIF, video, or YouTube poster as the widget background.'='기본 테마나 사용자 지정 색상을 선택한 뒤, 로컬 이미지·GIF·영상 또는 YouTube 포스터를 위젯 배경으로 추가하세요.'
+  'Used by the Custom theme for primary labels and shortcut names.'='사용자 지정 테마의 기본 레이블과 바로가기 이름에 사용합니다.'
+  'Local image/GIF/video, public HTTPS image, or YouTube link.'='로컬 이미지·GIF·영상, 공개 HTTPS 이미지 또는 YouTube 링크를 입력하세요.'
+  'Only use media you trust and have permission to display. YouTube links display a poster in the widget background; inline playback is only available for shortcut hover media.'='신뢰할 수 있고 표시 권한이 있는 미디어만 사용하세요. YouTube 링크는 위젯 배경에 포스터로 표시하며, 바로가기 위에 마우스를 올릴 때만 위젯 안에서 영상을 재생할 수 있습니다.'
+  'Choose Workspace background media'='위젯 배경 미디어 선택'; 'Supported media'='지원하는 미디어'; 'Images'='이미지'; 'Videos'='영상'; 'All files'='모든 파일'
+  'All colors must be valid #AARRGGBB or named WPF colors.'='모든 색상은 올바른 #AARRGGBB 값 또는 WPF 색상 이름이어야 합니다.'
+  'Background media must be a supported local file, public HTTPS image, or YouTube link.'='배경 미디어는 지원하는 로컬 파일, 공개 HTTPS 이미지 또는 YouTube 링크여야 합니다.'
+  'Could not apply appearance settings. Your current appearance was restored.'='테마와 배경 설정을 적용하지 못했습니다. 이전 설정으로 되돌렸습니다.'
   'Folder'='폴더'; 'Code'='코드'; 'Terminal'='터미널'; 'Database'='데이터베이스'; 'Document'='문서'; 'Image'='이미지'; 'Video'='영상'; 'Tools'='도구'
   'Calendar'='일정'; 'Launch'='실행'; 'Service'='서버'; 'People'='사용자'; 'Workspace'='작업 공간'; 'Web'='웹'; 'Data'='데이터'; 'Automation'='자동화'; 'Lab'='실험'
   'Server stop was not confirmed. No unowned process was stopped.'='서버 종료를 확인하지 못했습니다. 위젯이 시작하지 않은 프로세스는 종료하지 않았습니다.'
@@ -33,6 +42,7 @@ $script:widgetWords = @{
   'Starting server...'='서버를 시작하고 상태를 확인하는 중…'; 'Stopping server...'='서버가 안전하게 종료되기를 기다리는 중…'
   'Needs repair'='실행 경로 복구 필요'; 'Unavailable'='확인할 수 없음'; 'Permission blocked'='권한으로 차단됨'
   'Blocked by policy'='정책으로 차단됨'; 'Off · Windows setting'='꺼짐 · Windows 설정'; 'Off · not registered'='꺼짐 · 미등록'
+  'On'='켜짐'; 'Off'='꺼짐'; 'On · policy'='켜짐 · 정책'; 'Turn this on to start Workspace Widget after Windows sign-in.'='Windows에 로그인한 뒤 위젯을 실행하려면 켜세요.'
   'Drop to add'='놓아서 추가'; 'Drop apps, files, folders, or URLs here'='앱, 파일, 폴더 또는 주소를 여기에 놓으세요'
   '{0} shortcuts'='바로가기 {0}개'; 'Last checked  {0}'='마지막 확인  {0}'
   '{0} / {1} online'='{1}개 중 {0}개 정상'; 'No health checks'='상태 확인 대상 없음'
@@ -164,7 +174,7 @@ function Set-WidgetLocalizedTree {
   param($Root)
   if ($null -eq $Root -or $Root -is [string]) { return }
   foreach ($property in @('Text','Content','Header','ToolTip','Title')) {
-    if ($Root -is [System.Windows.Controls.TextBox]) { continue }
+    if ($property -eq 'Text' -and $Root -is [System.Windows.Controls.TextBox]) { continue }
     $p = $Root.PSObject.Properties[$property]
     if ($null -ne $p -and $p.Value -is [string]) {
       $source=[string]$p.Value
@@ -380,66 +390,180 @@ function Start-WidgetBoundsTransition {
   $script:widgetTransition.Start()
 }
 
+function Set-WidgetAppearanceDraftError {
+  param($Context,[string]$Message)
+  $Context.controls.error.Text=Get-WidgetText $Message
+  $Context.controls.error.Visibility=if([string]::IsNullOrWhiteSpace($Message)){[System.Windows.Visibility]::Collapsed}else{[System.Windows.Visibility]::Visible}
+}
+
+function Reset-WidgetAppearanceSettingsDraft {
+  param($Context)
+  $appearance=$script:state.window.appearance
+  foreach($item in $Context.controls.theme.Items){
+    if([string]$item.Tag -eq [string]$appearance.theme){$Context.controls.theme.SelectedItem=$item;break}
+  }
+  if($null -eq $Context.controls.theme.SelectedItem){$Context.controls.theme.SelectedIndex=0}
+  foreach($field in @('accent','panel','card','cardHover','text')){
+    $property=@{accent='accentColor';panel='panelColor';card='cardColor';cardHover='cardHoverColor';text='textColor'}[$field]
+    $Context.controls[$field].Text=[string]$appearance.$property
+  }
+  $Context.controls.media.Text=[string]$appearance.backgroundMedia
+  $Context.controls.opacity.Value=[math]::Max(0.05,[math]::Min(1.0,[double]$appearance.backgroundMediaOpacity))
+  $Context.controls.mute.IsChecked=[bool]$appearance.backgroundVideoMuted
+  Set-WidgetAppearanceDraftError -Context $Context -Message ''
+}
+
+function Apply-WidgetAppearanceSettingsDraft {
+  param($Context)
+  $controls=$Context.controls
+  $selectedTheme=if($null -eq $controls.theme.SelectedItem){''}else{[string]$controls.theme.SelectedItem.Tag}
+  try {
+    foreach($field in @('accent','panel','card','cardHover','text')){Convert-ToBrush $controls[$field].Text.Trim()|Out-Null}
+  } catch {
+    Set-WidgetAppearanceDraftError -Context $Context -Message 'All colors must be valid #AARRGGBB or named WPF colors.'
+    return $false
+  }
+  $backgroundMedia=$controls.media.Text.Trim()
+  try {$backgroundKind=Resolve-MediaKind -Source $backgroundMedia -ConfiguredKind 'auto'} catch {
+    Set-WidgetAppearanceDraftError -Context $Context -Message 'Background media must be a supported local file, public HTTPS image, or YouTube link.'
+    return $false
+  }
+  if(-not [string]::IsNullOrWhiteSpace($backgroundMedia) -and -not (Test-MediaSource -Source $backgroundMedia -ConfiguredKind $backgroundKind)){
+    Set-WidgetAppearanceDraftError -Context $Context -Message 'Background media must be a supported local file, public HTTPS image, or YouTube link.'
+    return $false
+  }
+  $values=@($controls.accent.Text.Trim(),$controls.panel.Text.Trim(),$controls.card.Text.Trim(),$controls.cardHover.Text.Trim(),$controls.text.Text.Trim())
+  if($selectedTheme -ne 'Custom' -and $Context.presets.ContainsKey($selectedTheme) -and [string]::Join('|',$values) -cne [string]::Join('|',$Context.presets[$selectedTheme])){$selectedTheme='Custom'}
+  $appearance=$script:state.window.appearance
+  $prior=@{}
+  foreach($property in @('theme','accentColor','panelColor','cardColor','cardHoverColor','textColor','backgroundMedia','backgroundMediaKind','backgroundMediaOpacity','backgroundVideoMuted')){$prior[$property]=$appearance.$property}
+  try {
+    $appearance.theme=$selectedTheme; $appearance.accentColor=$values[0]; $appearance.panelColor=$values[1]; $appearance.cardColor=$values[2]; $appearance.cardHoverColor=$values[3]; $appearance.textColor=$values[4]
+    $appearance.backgroundMedia=$backgroundMedia; $appearance.backgroundMediaKind=$backgroundKind; $appearance.backgroundMediaOpacity=[math]::Round([double]$controls.opacity.Value,2); $appearance.backgroundVideoMuted=[bool]$controls.mute.IsChecked
+    Apply-Appearance
+    if(-not (Save-State)){throw 'State save did not complete.'}
+  } catch {
+    foreach($property in $prior.Keys){$appearance.$property=$prior[$property]}
+    try{Apply-Appearance}catch{}
+    Write-RuntimeLog "Appearance settings apply failed. $($_.Exception.Message)"
+    Set-WidgetAppearanceDraftError -Context $Context -Message 'Could not apply appearance settings. Your current appearance was restored.'
+    return $false
+  }
+  # Re-read the applied theme as well as colors: editing a preset promotes it
+  # to Custom, and the selector must not keep showing the old preset name.
+  Reset-WidgetAppearanceSettingsDraft -Context $Context
+  return $true
+}
+
+function New-WidgetAppearanceSettingsPanel {
+  param([Parameter(Mandatory=$true)]$Dialog)
+  $panel=[System.Windows.Controls.StackPanel]::new()
+  $panel.Margin=[System.Windows.Thickness]::new(2,4,2,4)
+  $presets=@{
+    Midnight=@('#FF3E8BFF','#EE09162B','#E80F203B','#F2162F56','#FFF6F9FF')
+    Neon=@('#FF30F2FF','#F0050812','#E8111230','#F5230B4C','#FFF7FEFF')
+    Sakura=@('#FFFF6FAE','#F01D1025','#EA35172F','#F34A2147','#FFFFF6FB')
+    Monochrome=@('#FFAFC7FF','#F016181D','#EA23262D','#F2383D47','#FFF7F8FA')
+  }
+  $controls=@{}
+  $title=New-TextBlock -Text (Get-WidgetText 'Appearance & media') -Size 18 -Weight SemiBold; $title.Margin=[System.Windows.Thickness]::new(0,0,0,5); $panel.Children.Add($title)|Out-Null
+  $intro=New-TextBlock -Text (Get-WidgetText 'Use a preset or custom colors, then add a local image, GIF, video, or YouTube poster as the widget background.') -Size 12 -Color '#FFA9B9D1'; $intro.TextWrapping='Wrap'; $intro.Margin=[System.Windows.Thickness]::new(0,0,0,15); $panel.Children.Add($intro)|Out-Null
+  $themeLabel=New-TextBlock -Text (Get-WidgetText 'Theme') -Size 11 -Color '#FFA9B9D1'; $themeLabel.Margin=[System.Windows.Thickness]::new(0,0,0,5); $panel.Children.Add($themeLabel)|Out-Null
+  $theme=[System.Windows.Controls.ComboBox]::new(); $theme.Height=34; $theme.Margin=[System.Windows.Thickness]::new(0,0,0,12); $theme.Background=Convert-ToBrush '#FF0F203B'; $theme.Foreground=Convert-ToBrush '#FFF6F9FF'; $theme.MaxDropDownHeight=294; Set-DialogComboBoxStyle $theme
+  foreach($id in @('Midnight','Neon','Sakura','Monochrome','Custom')){$item=[System.Windows.Controls.ComboBoxItem]::new();$item.Tag=$id;$item.Content=Get-WidgetText $id;$item.Foreground=Convert-ToBrush '#FFF6F9FF';$theme.Items.Add($item)|Out-Null}
+  $controls.theme=$theme; $panel.Children.Add($theme)|Out-Null
+  $colorMap=@(@('accent','Accent ARGB'),@('panel','Panel ARGB'),@('card','Shortcut card ARGB'),@('cardHover','Card hover ARGB'),@('text','Primary text ARGB'))
+  foreach($entry in $colorMap){
+    $label=New-TextBlock -Text (Get-WidgetText $entry[1]) -Size 11 -Color '#FFA9B9D1'; $label.Margin=[System.Windows.Thickness]::new(0,0,0,4); $panel.Children.Add($label)|Out-Null
+    $box=[System.Windows.Controls.TextBox]::new();$box.Height=32;$box.Padding=[System.Windows.Thickness]::new(8,5,8,5);$box.Margin=[System.Windows.Thickness]::new(0,0,0,9);$box.Background=Convert-ToBrush '#FF0F203B';$box.Foreground=Convert-ToBrush '#FFF6F9FF';$box.BorderBrush=Convert-ToBrush '#665C8AC6';$controls[$entry[0]]=$box;$panel.Children.Add($box)|Out-Null
+  }
+  $mediaLabel=New-TextBlock -Text (Get-WidgetText 'Background media') -Size 11 -Color '#FFA9B9D1';$mediaLabel.Margin=[System.Windows.Thickness]::new(0,4,0,5);$panel.Children.Add($mediaLabel)|Out-Null
+  $mediaGrid=[System.Windows.Controls.Grid]::new();$mediaGrid.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new())|Out-Null;$browseColumn=[System.Windows.Controls.ColumnDefinition]::new();$browseColumn.Width='Auto';$mediaGrid.ColumnDefinitions.Add($browseColumn)|Out-Null;$mediaGrid.Margin=[System.Windows.Thickness]::new(0,0,0,12);$panel.Children.Add($mediaGrid)|Out-Null
+  $media=[System.Windows.Controls.TextBox]::new();$media.Height=34;$media.Padding=[System.Windows.Thickness]::new(9,6,9,6);$media.Background=Convert-ToBrush '#FF0F203B';$media.Foreground=Convert-ToBrush '#FFF6F9FF';$media.BorderBrush=Convert-ToBrush '#665C8AC6';$media.ToolTip=Get-WidgetText 'Local image/GIF/video, public HTTPS image, or YouTube link.';$controls.media=$media;$mediaGrid.Children.Add($media)|Out-Null
+  $browse=[System.Windows.Controls.Button]::new();$browse.Content=Get-WidgetText 'Browse...';$browse.Width=82;$browse.Height=34;$browse.Margin=[System.Windows.Thickness]::new(8,0,0,0);$browse.Background=Convert-ToBrush '#FF172A47';$browse.Foreground=Convert-ToBrush '#FFF6F9FF';$browse.BorderBrush=Convert-ToBrush '#665C8AC6';$browse.Template=New-ButtonTemplate;[System.Windows.Controls.Grid]::SetColumn($browse,1);$mediaGrid.Children.Add($browse)|Out-Null
+  $opacityLabel=New-TextBlock -Text (Get-WidgetText 'Background opacity') -Size 11 -Color '#FFA9B9D1';$opacityLabel.Margin=[System.Windows.Thickness]::new(0,0,0,5);$panel.Children.Add($opacityLabel)|Out-Null
+  $opacityRow=[System.Windows.Controls.Grid]::new();$opacityRow.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new())|Out-Null;$valueCol=[System.Windows.Controls.ColumnDefinition]::new();$valueCol.Width='Auto';$opacityRow.ColumnDefinitions.Add($valueCol)|Out-Null;$opacityRow.Margin=[System.Windows.Thickness]::new(0,0,0,10);$panel.Children.Add($opacityRow)|Out-Null
+  $opacity=[System.Windows.Controls.Slider]::new();$opacity.Minimum=.05;$opacity.Maximum=1.0;$opacity.SmallChange=.05;$controls.opacity=$opacity;$opacityRow.Children.Add($opacity)|Out-Null
+  $opacityText=New-TextBlock -Text='' -Size 11;$opacityText.Width=48;$opacityText.TextAlignment='Right';[System.Windows.Controls.Grid]::SetColumn($opacityText,1);$opacityRow.Children.Add($opacityText)|Out-Null
+  $mute=[System.Windows.Controls.CheckBox]::new();$mute.Content=Get-WidgetText 'Mute background video';$mute.Foreground=Convert-ToBrush '#FFC6D2E5';$mute.FontSize=11;$mute.Margin=[System.Windows.Thickness]::new(0,0,0,12);$controls.mute=$mute;$panel.Children.Add($mute)|Out-Null
+  $rights=New-TextBlock -Text (Get-WidgetText 'Only use media you trust and have permission to display. YouTube links display a poster in the widget background; inline playback is only available for shortcut hover media.') -Size 12 -Color '#FF7D91AE';$rights.TextWrapping='Wrap';$rights.Margin=[System.Windows.Thickness]::new(0,0,0,10);$panel.Children.Add($rights)|Out-Null
+  $error=New-TextBlock -Text='' -Size 10 -Color '#FFFF9A9A';$error.TextWrapping='Wrap';$error.Visibility='Collapsed';$error.Margin=[System.Windows.Thickness]::new(0,0,0,10);$controls.error=$error;$panel.Children.Add($error)|Out-Null
+  $buttons=[System.Windows.Controls.StackPanel]::new();$buttons.Orientation='Horizontal';$buttons.HorizontalAlignment='Right';$panel.Children.Add($buttons)|Out-Null
+  $clear=[System.Windows.Controls.Button]::new();$clear.Content=Get-WidgetText 'Clear media';$clear.Height=34;$clear.Padding=[System.Windows.Thickness]::new(12,4,12,4);$clear.Margin=[System.Windows.Thickness]::new(0,0,8,0);$clear.Background=Convert-ToBrush '#FF172A47';$clear.Foreground=Convert-ToBrush '#FFF6F9FF';$clear.BorderBrush=Convert-ToBrush '#665C8AC6';$clear.Template=New-ButtonTemplate -HoverBackground '#FF304663' -PressedBackground '#FF1B2C42';$buttons.Children.Add($clear)|Out-Null
+  $cancel=[System.Windows.Controls.Button]::new();$cancel.Content=Get-WidgetText 'Cancel';$cancel.Height=34;$cancel.Padding=[System.Windows.Thickness]::new(12,4,12,4);$cancel.Margin=[System.Windows.Thickness]::new(0,0,8,0);$cancel.Background=Convert-ToBrush '#FF172A47';$cancel.Foreground=Convert-ToBrush '#FFF6F9FF';$cancel.BorderBrush=Convert-ToBrush '#665C8AC6';$cancel.Template=New-ButtonTemplate -HoverBackground '#FF304663' -PressedBackground '#FF1B2C42';$buttons.Children.Add($cancel)|Out-Null
+  $apply=[System.Windows.Controls.Button]::new();$apply.Content=Get-WidgetText 'Apply';$apply.Height=34;$apply.Padding=[System.Windows.Thickness]::new(12,4,12,4);$apply.Background=Convert-ToBrush '#FF1F6FD0';$apply.Foreground=[System.Windows.Media.Brushes]::White;$apply.BorderBrush=Convert-ToBrush '#FF3E8BFF';$apply.Template=New-ButtonTemplate -HoverBackground '#FF2D80E0' -PressedBackground '#FF195AA8';$buttons.Children.Add($apply)|Out-Null
+  $controls.apply=$apply;$controls.cancel=$cancel;$panel.Tag=$controls
+  $context=@{controls=$controls;presets=$presets;dialog=$Dialog}
+  $theme.Tag=$context;$browse.Tag=$context;$clear.Tag=$context;$cancel.Tag=$context;$apply.Tag=$context;$opacity.Tag=@{text=$opacityText}
+  $theme.Add_SelectionChanged({param($sender,$e)$context=$sender.Tag;if($null -eq $sender.SelectedItem){return};$id=[string]$sender.SelectedItem.Tag;if($context.presets.ContainsKey($id)){$colors=$context.presets[$id];foreach($pair in @(@('accent',0),@('panel',1),@('card',2),@('cardHover',3),@('text',4))){$context.controls[$pair[0]].Text=$colors[$pair[1]]}}})
+  $browse.Add_Click({param($sender,$e)$context=$sender.Tag;$picker=[Microsoft.Win32.OpenFileDialog]::new();$picker.Title=Get-WidgetText 'Choose Workspace background media';$picker.Filter="$(Get-WidgetText 'Supported media')|*.png;*.jpg;*.jpeg;*.bmp;*.ico;*.gif;*.mp4;*.m4v;*.wmv;*.avi;*.mov|$(Get-WidgetText 'Images')|*.png;*.jpg;*.jpeg;*.bmp;*.ico;*.gif|$(Get-WidgetText 'Videos')|*.mp4;*.m4v;*.wmv;*.avi;*.mov|$(Get-WidgetText 'All files')|*.*";if($picker.ShowDialog($context.dialog)){$context.controls.media.Text=$picker.FileName}})
+  $clear.Add_Click({param($sender,$e)$sender.Tag.controls.media.Text=''})
+  $cancel.Add_Click({param($sender,$e)Reset-WidgetAppearanceSettingsDraft -Context $sender.Tag})
+  $apply.Add_Click({param($sender,$e)[void](Apply-WidgetAppearanceSettingsDraft -Context $sender.Tag)})
+  $opacity.Add_ValueChanged({param($sender,$e)$sender.Tag.text.Text=('{0:P0}' -f $sender.Value)})
+  Reset-WidgetAppearanceSettingsDraft -Context $context
+  return $panel
+}
+
+function Set-WidgetSettingsTabStyle {
+  param([System.Windows.Controls.TabControl]$Tabs)
+  $resources=[System.Windows.Markup.XamlReader]::Parse(@'
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style x:Key="SettingsTab" TargetType="{x:Type TabItem}">
+    <Setter Property="Foreground" Value="#FFF6F9FF"/>
+    <Setter Property="Background" Value="#FF223149"/>
+    <Setter Property="Padding" Value="14,9"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="{x:Type TabItem}">
+          <Border x:Name="TabSurface" Background="{TemplateBinding Background}" BorderBrush="#FF53729B" BorderThickness="1" CornerRadius="5" Padding="{TemplateBinding Padding}" Margin="0,0,6,8">
+            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Foreground}"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TabSurface" Property="Background" Value="#FF304663"/></Trigger>
+            <Trigger Property="IsSelected" Value="True"><Setter TargetName="TabSurface" Property="Background" Value="#FF245B97"/><Setter TargetName="TabSurface" Property="BorderBrush" Value="#FF74AEFF"/></Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="TabSurface" Property="BorderBrush" Value="#FFD9E9FF"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="TabSurface" Property="Opacity" Value="0.55"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <ControlTemplate x:Key="SettingsTabs" TargetType="{x:Type TabControl}">
+    <DockPanel LastChildFill="True">
+      <TabPanel DockPanel.Dock="Top" IsItemsHost="True" KeyboardNavigation.TabIndex="1"/>
+      <Border Background="#FF16181D" Padding="0,6,0,0">
+        <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
+      </Border>
+    </DockPanel>
+  </ControlTemplate>
+</ResourceDictionary>
+'@)
+  $Tabs.ItemContainerStyle=$resources['SettingsTab']
+  $Tabs.Template=$resources['SettingsTabs']
+}
+
 function Show-WidgetSettings {
-  # Reuse existing settings controls and their tested event handlers in a single,
-  # opaque, independently sized window; compact mode never clips these controls.
-  if ($null -ne $script:settingsWindow) { $script:settingsWindow.Activate() | Out-Null; return }
-  $dialog=[System.Windows.Window]::new(); $script:settingsWindow=$dialog
-  $dialog.Title=Get-WidgetText 'Settings'; $dialog.Owner=$script:window
-  $dialog.Width=550; $dialog.Height=570; $dialog.MinWidth=470; $dialog.MinHeight=380
-  $dialog.WindowStartupLocation='CenterOwner'; $dialog.ShowInTaskbar=$false
-  $dialog.Background=Convert-ToBrush '#FF16181D'; $dialog.Foreground=Convert-ToBrush '#FFF6F9FF'
-  $scroll=[System.Windows.Controls.ScrollViewer]::new(); $scroll.VerticalScrollBarVisibility='Auto'
-  $stack=[System.Windows.Controls.StackPanel]::new(); $stack.Margin=[System.Windows.Thickness]::new(22)
-  $scroll.Content=$stack; $dialog.Content=$scroll
-  $title=New-TextBlock -Text (Get-WidgetText 'Settings') -Size 22 -Weight SemiBold
-  $title.Margin=[System.Windows.Thickness]::new(0,0,0,20); $stack.Children.Add($title)|Out-Null
-  $opacityContent=$script:opacityPanel.Child; $script:opacityPanel.Child=$null
-  $settingsContent=$script:settingsPanel.Child; $script:settingsPanel.Child=$null
-  $opacityContent.Margin=[System.Windows.Thickness]::new(0,0,0,20)
-  $stack.Children.Add($opacityContent)|Out-Null; $stack.Children.Add($settingsContent)|Out-Null
-  $languageLabel=New-TextBlock -Text (Get-WidgetText 'Language') -Size 12
-  $languageLabel.Margin=[System.Windows.Thickness]::new(0,22,0,8); $stack.Children.Add($languageLabel)|Out-Null
-  $language=[System.Windows.Controls.ComboBox]::new(); $language.Height=36
-  $language.Foreground=Convert-ToBrush '#FFF6F9FF'
-  $language.Background=Convert-ToBrush '#FF0F203B'
-  $language.BorderBrush=Convert-ToBrush '#FF5C8AC6'
-  Set-DialogComboBoxStyle $language
-  foreach ($entry in @(@('ko-KR','한국어'),@('en-US','English'))) {
-    $item=[System.Windows.Controls.ComboBoxItem]::new(); $item.Tag=$entry[0]; $item.Content=$entry[1]
-    $item.Foreground=Convert-ToBrush '#FFF6F9FF'
-    $language.Items.Add($item)|Out-Null
-    if($script:state.window.language -eq $entry[0]){$language.SelectedItem=$item}
+  param([ValidateSet('General','Appearance')][string]$InitialPage='General')
+  if($null -ne $script:settingsWindow){
+    if($script:settingsWindow.Tag.tabs){$script:settingsWindow.Tag.tabs.SelectedIndex=if($InitialPage -eq 'Appearance'){1}else{0}}
+    $script:settingsWindow.Activate()|Out-Null;return
   }
-  $language.Add_SelectionChanged({
-    param($sender,$eventArgs)
-    if($null -eq $sender.SelectedItem){return}
-    $script:state.window.language=[string]$sender.SelectedItem.Tag
-    Update-WidgetLanguage
-    Save-State | Out-Null
-  })
-  $stack.Children.Add($language)|Out-Null
-  foreach($option in @(@('Reduce motion','reduceMotion'),@('Snap to screen edges','edgeSnap'))) {
-    $check=[System.Windows.Controls.CheckBox]::new(); $check.Content=$option[0]; $check.Tag=$option[1]
-    $check.Foreground=Convert-ToBrush '#FFE0E5ED'; $check.Margin=[System.Windows.Thickness]::new(0,14,0,0)
-    $check.IsChecked=[bool]$script:state.window.($option[1])
-    $check.Add_Click({param($sender,$e) $script:state.window.($sender.Tag)=[bool]$sender.IsChecked; Save-State | Out-Null})
-    $stack.Children.Add($check)|Out-Null
-  }
-  $close=[System.Windows.Controls.Button]::new(); $close.Content='Close'; $close.Height=34
-  $close.Background=Convert-ToBrush '#FF223149'; $close.Foreground=Convert-ToBrush '#FFF6F9FF'
-  $close.BorderBrush=Convert-ToBrush '#FF53729B'
-  $close.Template=New-ButtonTemplate -HoverBackground '#FF304663' -PressedBackground '#FF1B2C42'
-  $close.Margin=[System.Windows.Thickness]::new(0,20,0,0); $close.IsCancel=$true
-  $close.Add_Click({$script:settingsWindow.Close()}); $stack.Children.Add($close)|Out-Null
-  $dialog.Tag=@{stack=$stack;opacity=$opacityContent;settings=$settingsContent}
-  $dialog.Add_Closed({param($sender,$e)
-    $sender.Tag.stack.Children.Remove($sender.Tag.opacity)
-    $sender.Tag.stack.Children.Remove($sender.Tag.settings)
-    $script:opacityPanel.Child=$sender.Tag.opacity; $script:settingsPanel.Child=$sender.Tag.settings
-    $script:settingsWindow=$null
-  })
-  Set-WidgetLocalizedTree $dialog
-  if(-not $script:autostartBusy){Start-AutostartOperation -Action Get}
-  $dialog.ShowDialog()|Out-Null
+  $dialog=[System.Windows.Window]::new();$script:settingsWindow=$dialog;$dialog.Title=Get-WidgetText 'Settings';$dialog.Owner=$script:window;$dialog.Width=570;$dialog.Height=650;$dialog.MinWidth=470;$dialog.MinHeight=380;$dialog.WindowStartupLocation='CenterOwner';$dialog.ShowInTaskbar=$false;$dialog.Background=Convert-ToBrush '#FF16181D';$dialog.Foreground=Convert-ToBrush '#FFF6F9FF'
+  $root=[System.Windows.Controls.DockPanel]::new();$root.Margin=[System.Windows.Thickness]::new(22);$dialog.Content=$root
+  $close=[System.Windows.Controls.Button]::new();$close.Content=Get-WidgetText 'Close';$close.Height=34;$close.Background=Convert-ToBrush '#FF223149';$close.Foreground=Convert-ToBrush '#FFF6F9FF';$close.BorderBrush=Convert-ToBrush '#FF53729B';$close.Template=New-ButtonTemplate -HoverBackground '#FF304663' -PressedBackground '#FF1B2C42';$close.Margin=[System.Windows.Thickness]::new(0,14,0,0);$close.IsCancel=$true;$close.Add_Click({$script:settingsWindow.Close()});[System.Windows.Controls.DockPanel]::SetDock($close,'Bottom');$root.Children.Add($close)|Out-Null
+  $tabs=[System.Windows.Controls.TabControl]::new();$tabs.Background=Convert-ToBrush '#FF0F203B';$tabs.Foreground=Convert-ToBrush '#FFF6F9FF';$tabs.BorderBrush=Convert-ToBrush '#FF53729B'
+  Set-WidgetSettingsTabStyle $tabs
+  $root.Children.Add($tabs)|Out-Null
+  $generalTab=[System.Windows.Controls.TabItem]::new();$generalTab.Header=Get-WidgetText 'General';$tabs.Items.Add($generalTab)|Out-Null
+  $generalScroll=[System.Windows.Controls.ScrollViewer]::new();$generalScroll.VerticalScrollBarVisibility='Auto';$generalTab.Content=$generalScroll;$general=[System.Windows.Controls.StackPanel]::new();$general.Margin=[System.Windows.Thickness]::new(2,12,2,2);$generalScroll.Content=$general
+  $opacityContent=$script:opacityPanel.Child;$script:opacityPanel.Child=$null;$settingsContent=$script:settingsPanel.Child;$script:settingsPanel.Child=$null;$opacityContent.Margin=[System.Windows.Thickness]::new(0,0,0,20);$general.Children.Add($opacityContent)|Out-Null;$general.Children.Add($settingsContent)|Out-Null
+  $languageLabel=New-TextBlock -Text (Get-WidgetText 'Language') -Size 12;$languageLabel.Margin=[System.Windows.Thickness]::new(0,22,0,8);$general.Children.Add($languageLabel)|Out-Null
+  $language=[System.Windows.Controls.ComboBox]::new();$language.Height=36;$language.Foreground=Convert-ToBrush '#FFF6F9FF';$language.Background=Convert-ToBrush '#FF0F203B';$language.BorderBrush=Convert-ToBrush '#FF5C8AC6';Set-DialogComboBoxStyle $language;foreach($entry in @(@('ko-KR','한국어'),@('en-US','English'))){$item=[System.Windows.Controls.ComboBoxItem]::new();$item.Tag=$entry[0];$item.Content=$entry[1];$item.Foreground=Convert-ToBrush '#FFF6F9FF';$language.Items.Add($item)|Out-Null;if($script:state.window.language -eq $entry[0]){$language.SelectedItem=$item}};$language.Add_SelectionChanged({param($sender,$e)if($null -ne $sender.SelectedItem){$script:state.window.language=[string]$sender.SelectedItem.Tag;Update-WidgetLanguage;Save-State|Out-Null}});$general.Children.Add($language)|Out-Null
+  foreach($option in @(@('Reduce motion','reduceMotion'),@('Snap to screen edges','edgeSnap'))){$check=[System.Windows.Controls.CheckBox]::new();$check.Content=$option[0];$check.Tag=$option[1];$check.Foreground=Convert-ToBrush '#FFE0E5ED';$check.Margin=[System.Windows.Thickness]::new(0,14,0,0);$check.IsChecked=[bool]$script:state.window.($option[1]);$check.Add_Click({param($sender,$e)$script:state.window.($sender.Tag)=[bool]$sender.IsChecked;Save-State|Out-Null});$general.Children.Add($check)|Out-Null}
+  $appearanceTab=[System.Windows.Controls.TabItem]::new();$appearanceTab.Header=Get-WidgetText 'Appearance & media';$tabs.Items.Add($appearanceTab)|Out-Null;$appearanceScroll=[System.Windows.Controls.ScrollViewer]::new();$appearanceScroll.VerticalScrollBarVisibility='Auto';$appearanceTab.Content=$appearanceScroll;$appearanceScroll.Content=(New-WidgetAppearanceSettingsPanel -Dialog $dialog)
+  $tabs.SelectedIndex=if($InitialPage -eq 'Appearance'){1}else{0};$dialog.Tag=@{tabs=$tabs;general=$general;opacity=$opacityContent;settings=$settingsContent}
+  $dialog.Add_Closed({param($sender,$e)$sender.Tag.general.Children.Remove($sender.Tag.opacity);$sender.Tag.general.Children.Remove($sender.Tag.settings);$script:opacityPanel.Child=$sender.Tag.opacity;$script:settingsPanel.Child=$sender.Tag.settings;$script:settingsWindow=$null})
+  Set-WidgetLocalizedTree $dialog;if(-not $script:autostartBusy){Start-AutostartOperation -Action Get};$dialog.ShowDialog()|Out-Null
 }

@@ -181,8 +181,8 @@ Enable **Settings > Show hidden** to see and restore hidden items.
 ### Move and resize
 
 Drag the header to move the widget. Resize it from the bottom-right resize
-handle. Position, size, layout mode, opacity, appearance, and registered items
-are saved automatically.
+handle. Position, size, layout mode and opacity are saved automatically.
+Appearance changes require **Apply**; shortcut edits require **Save**.
 
 Dragging is not constrained to the initial display. **Settings > Snap to screen
 edges** controls whether a completed drag near the left or right edge snaps to
@@ -203,6 +203,17 @@ widget temporarily raises it to full opacity.
 
 Background-media opacity is a separate setting. It does not change the opacity
 of the whole window.
+
+### Theme and background media
+
+Open the **Appearance & media** page within **Settings** to choose a preset,
+custom colors, or a background image/video. The page uses the selected Korean
+or English language, including preset labels and validation feedback. Theme
+identifiers in saved state do not change when switching language.
+
+Choose **Apply** to validate and save the appearance draft. **Cancel** restores
+the last applied values. Closing Settings without applying discards this draft;
+other settings, such as opacity and language, remain immediate preferences.
 
 ### Language and motion
 
