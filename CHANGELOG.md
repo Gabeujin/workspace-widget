@@ -3,10 +3,49 @@
 All notable changes to Workspace Widget are documented in this file.
 
 The project follows semantic versioning for release artifacts. The current
-0.1.4 build is a development preview and has not passed Microsoft Store
+0.2.0 build is a development preview and has not passed Microsoft Store
 certification.
 
 ## Unreleased
+
+### 0.2.0 registration and desktop experience
+
+- Separate ordinary shortcuts from local servers. Server registrations include
+  start/stop scripts and one to sixteen ordered, unique loopback health checks.
+- Bind the health set and explicit stop helper to authenticated ownership;
+  keep Start and Stop separate without adopting foreign port listeners.
+- Unify opacity and settings in an independently sized Korean/English dialog.
+  Preserve readable collapsed, selected, hover and keyboard-focus colors.
+- Expand the original semantic icon library to 18 choices and add file pickers
+  for custom icons, local hover media and lifecycle scripts.
+- Add reduced-motion-aware, interruptible compact/full transitions, a dedicated
+  drag surface, cross-monitor movement and optional screen-edge snapping.
+- Preserve V4 registrations during V5 migration and reject malformed state
+  instead of overwriting it with defaults.
+
+### 0.1.6 startup and shutdown reliability
+
+- Confirm startup through authenticated ownership and the supervisor control
+  pipe; never interpret service stdout as a lifecycle acknowledgement.
+- Drain noisy service output without retaining unbounded log content and retry
+  transient control-pipe readiness failures within a 15-second startup budget.
+- Allow 40 seconds for cooperative shutdown before offering confirmed force.
+- Report unconfirmed stops accurately instead of labeling every failure canceled.
+- Preserve the dark built-in icon selector and its focus/selection contrast.
+- Add forged/noisy startup-output and stop-feedback regression coverage.
+
+### 0.1.5 server lifecycle
+
+- Added a product-independent native supervisor with a retained Job Object,
+  persisted ownership evidence, protected control channel, and stop receipts.
+- Server Stop requests cooperative shutdown first and asks for confirmation
+  only when a verified force fallback is needed after timeout.
+- Owned supervisors survive tray Exit and support verification after the Widget
+  reopens. Unowned processes and foreign listeners cannot be adopted or stopped.
+- Tray Exit now explicitly says that servers keep running; local installation
+  and launch discovery distinguish supervisors from the Widget UI.
+- Added isolated lifecycle regressions for graceful shutdown, force fallback,
+  ownership mismatch, fresh-client recovery, wrapper children, and foreign ports.
 
 ### Added
 

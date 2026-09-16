@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.4',
+  [string]$Version = '0.2.0',
   [string]$OutputRoot,
   [switch]$RequireInstaller,
   [switch]$RequireSigned,
@@ -74,13 +74,20 @@ $expectedSemanticIconFiles = @(
   'web.svg', 'web.png',
   'data.svg', 'data.png',
   'automation.svg', 'automation.png',
-  'lab.svg', 'lab.png'
+  'lab.svg', 'lab.png',
+  'folder.svg', 'folder.png', 'code.svg', 'code.png',
+  'terminal.svg', 'terminal.png', 'database.svg', 'database.png',
+  'document.svg', 'document.png', 'image.svg', 'image.png',
+  'video.svg', 'video.png', 'tools.svg', 'tools.png',
+  'calendar.svg', 'calendar.png', 'settings.svg', 'settings.png'
 ) | ForEach-Object { "assets\semantic-icons\$_" }
 
 $expectedStageFiles = @(
   'WorkspaceWidget.exe',
   'WebView2Loader.dll',
   'app\WorkspaceWidget.ps1',
+  'app\WidgetExperience.ps1',
+  'app\managed-stop.mjs',
   'app\default-state.json',
   'assets\workspace-widget.ico',
   'assets\workspace-widget-logo.png',
@@ -91,6 +98,7 @@ $expectedStageFiles = @(
   'scripts\Set-WorkspaceWidgetAutostart.ps1',
   'docs\INSTALLATION.md',
   'docs\USER-GUIDE.md',
+  'docs\SERVER-LIFECYCLE.md',
   'docs\MEDIA-CUSTOMIZATION.md',
   'docs\ENTERPRISE-DEPLOYMENT.md',
   'docs\MICROSOFT-STORE-RELEASE.md',
@@ -121,6 +129,7 @@ $unexpectedStageFiles = @($actualStageFiles | Where-Object { $_ -notin $expected
 $parserResults = @(
   foreach ($file in @(
       (Join-Path $ProjectRoot 'app\WorkspaceWidget.ps1'),
+      (Join-Path $ProjectRoot 'app\WidgetExperience.ps1'),
       (Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Restore-WorkspaceWidgetDependencies.ps1'),
       (Join-Path $ProjectRoot 'scripts\Restore-WorkspaceWidgetNodeRuntime.ps1'),
@@ -129,6 +138,10 @@ $parserResults = @(
       (Join-Path $ProjectRoot 'scripts\Install-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidget.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetSemanticIcons.ps1'),
+      (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetManagedLifecycle.ps1'),
+      (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetLifecycleUi.ps1'),
+      (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetStartupIntegration.ps1'),
+      (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetManagedLaunchBoundary.ps1'),
       (Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'),
       (Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetMsix.ps1'),
       $PSCommandPath
@@ -178,12 +191,15 @@ $manifestCoverage = (
 
 $sourceStageMappings = @(
   [pscustomobject]@{ source='app\WorkspaceWidget.ps1'; stage='app\WorkspaceWidget.ps1' },
+  [pscustomobject]@{ source='app\WidgetExperience.ps1'; stage='app\WidgetExperience.ps1' },
+  [pscustomobject]@{ source='app\managed-stop.mjs'; stage='app\managed-stop.mjs' },
   [pscustomobject]@{ source='app\public-default-state.json'; stage='app\default-state.json' },
   [pscustomobject]@{ source='assets\workspace-widget.ico'; stage='assets\workspace-widget.ico' },
   [pscustomobject]@{ source='assets\workspace-widget-logo.png'; stage='assets\workspace-widget-logo.png' },
   [pscustomobject]@{ source='scripts\Set-WorkspaceWidgetAutostart.ps1'; stage='scripts\Set-WorkspaceWidgetAutostart.ps1' },
   [pscustomobject]@{ source='docs\INSTALLATION.md'; stage='docs\INSTALLATION.md' },
   [pscustomobject]@{ source='docs\USER-GUIDE.md'; stage='docs\USER-GUIDE.md' },
+  [pscustomobject]@{ source='docs\SERVER-LIFECYCLE.md'; stage='docs\SERVER-LIFECYCLE.md' },
   [pscustomobject]@{ source='docs\MEDIA-CUSTOMIZATION.md'; stage='docs\MEDIA-CUSTOMIZATION.md' },
   [pscustomobject]@{ source='docs\ENTERPRISE-DEPLOYMENT.md'; stage='docs\ENTERPRISE-DEPLOYMENT.md' },
   [pscustomobject]@{ source='docs\MICROSOFT-STORE-RELEASE.md'; stage='docs\MICROSOFT-STORE-RELEASE.md' },
@@ -249,7 +265,7 @@ $nodeRuntimeMismatches = @(
 )
 
 $sensitiveFindings = [System.Collections.Generic.List[object]]::new()
-$textExtensions = @('.md', '.ps1', '.psm1', '.js', '.json', '.txt')
+$textExtensions = @('.md', '.ps1', '.psm1', '.js', '.mjs', '.json', '.txt')
 $sensitivePatterns = [ordered]@{
   fixedUserProfile = '(?i)\bC:\\Users\\[^%<\\]+'
   openAiKey = '(?i)\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}'
@@ -380,9 +396,9 @@ $checks = [ordered]@{
   )
   webView2DependencyPin = (
     $null -ne $webView2Dependency -and
-    [string]$webView2Dependency.version -eq '1.0.4129.50' -and
+    [string]$webView2Dependency.version -eq '1.0.4191.47' -and
     [string]$webView2Dependency.packageSha256 -eq
-      'D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2'
+      'F492BBF547D0DA329553B6727435B677579B1E9F91CC9E4A1AD029366D5F23D0'
   )
   manifestCoverage = $manifestCoverage
   manifestHashes = $manifestMismatches.Count -eq 0
@@ -399,15 +415,15 @@ $checks = [ordered]@{
   )
   bundledNodeRuntime = (
     [string]$nodeRuntimeManifest.product -eq 'Node.js' -and
-    [string]$nodeRuntimeManifest.version -eq '24.19.0' -and
+    [string]$nodeRuntimeManifest.version -eq '24.21.0' -and
     [string]$nodeRuntimeManifest.packageSha256 -eq
-      '57F71AB3652E797D84ACDDC79C81CC9FF1C6DDB2A1974CDB83F00FEE9BFF4C73' -and
+      '158F7685B44DE51F6C0DF1D153526CBCD3E1BC739A8DFC607721CEF75DE9E541' -and
     [string]$nodeRuntimeManifest.sourceUrl -eq
-      'https://nodejs.org/download/release/v24.19.0/node-v24.19.0-win-x64.zip' -and
-    $nodeVersion -eq 'v24.19.0' -and
+      'https://nodejs.org/download/release/v24.21.0/node-v24.21.0-win-x64.zip' -and
+    $nodeVersion -eq 'v24.21.0' -and
     -not [string]::IsNullOrWhiteSpace($npmVersion) -and
     $null -ne $nodeDependency -and
-    [string]$nodeDependency.version -eq '24.19.0'
+    [string]$nodeDependency.version -eq '24.21.0'
   )
   nodeRuntimeHashes = $nodeRuntimeMismatches.Count -eq 0
   noSensitiveStageText = $sensitiveFindings.Count -eq 0

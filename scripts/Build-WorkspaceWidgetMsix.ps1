@@ -3,7 +3,7 @@ param(
   [string]$ProjectRoot,
   [string]$StageRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.4',
+  [string]$Version = '0.2.0',
   [string]$PackageVersion,
   [ValidatePattern('^[A-Za-z0-9.-]{3,50}$')]
   [string]$PackageIdentityName = 'WorkspaceWidget.Development',

@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.4',
+  [string]$Version = '0.2.0',
   [string]$TaskName = 'Workspace Service Widget',
   [string]$TaskPath = '\',
   [string]$SessionId = 'manual',
@@ -47,7 +47,8 @@ foreach ($required in @(
 $preflightWidgetProcesses = @(
   Get-CimInstance Win32_Process `
     -Filter "Name='WorkspaceWidget.exe'" `
-    -ErrorAction SilentlyContinue
+    -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.CommandLine -notmatch '(?i)\s--service-supervisor\s' }
 )
 if ($preflightWidgetProcesses.Count -gt 0) {
   throw (
@@ -253,12 +254,13 @@ $otherWidgetProcesses = @(
     -Filter "Name='WorkspaceWidget.exe'" `
     -ErrorAction SilentlyContinue |
     Where-Object {
+      [string]$_.CommandLine -notmatch '(?i)\s--service-supervisor\s' -and (
       [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) -or
       -not [string]::Equals(
         [System.IO.Path]::GetFullPath([string]$_.ExecutablePath),
         $nativeHost,
         [System.StringComparison]::OrdinalIgnoreCase
-      )
+      ))
     }
 )
 if ($otherWidgetProcesses.Count -gt 0) {

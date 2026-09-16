@@ -16,3 +16,17 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, "127.0.0.1");
+
+process.on("SIGBREAK", () => {
+  server.close(() => {
+    if (process.env.WORKSPACE_WIDGET_GRACEFUL_ACK_PATH && process.env.WORKSPACE_WIDGET_GRACEFUL_ACK_TOKEN) {
+      require("node:fs").writeFileSync(
+        process.env.WORKSPACE_WIDGET_GRACEFUL_ACK_PATH,
+        process.env.WORKSPACE_WIDGET_GRACEFUL_ACK_TOKEN,
+        "utf8"
+      );
+    }
+    process.exit(0);
+  });
+  server.closeIdleConnections?.();
+});

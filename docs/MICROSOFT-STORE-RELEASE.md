@@ -40,11 +40,11 @@ file out of public commits until it has been reviewed, and pass it to the build:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
-  -Version 0.1.0 `
+  -Version 0.2.0 `
   -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
-  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.0 `
+  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.2.0 `
   -StoreSubmission
 ```
 
@@ -60,7 +60,7 @@ before it reports success. The unsigned producer artifact is expected for this
 route: Microsoft re-signs the accepted package. Do not distribute that
 unsigned pre-submission file directly.
 
-The product release label remains `0.1.0`, while the Store package identity
+The product release label is `0.2.0`, while the Store package identity
 version is `1.0.0.0`. Windows 10/11 Store package versions require a nonzero
 first segment and reserve the fourth segment as `0`; the build and verifier fail
 closed when this rule is not satisfied. Store candidates use the package version
@@ -76,7 +76,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -ReceiptPath <generated-receipt-json> `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -ProjectRoot . `
-  -StageManifestPath <output-root>\source-build\WorkspaceWidget-0.1.0-manifest.json `
+  -StageManifestPath <output-root>\source-build\WorkspaceWidget-0.2.0-manifest.json `
   -StoreCandidate
 ```
 
@@ -111,7 +111,7 @@ The Submission options explanation for `runFullTrust` should say:
 
 > Workspace Widget is a user-controlled desktop launcher. It opens local apps,
 > files, folders, and URLs selected by the user and can start user-selected
-> local Node.js projects under the signed-in user's existing permissions. It
+> local Node.js projects or PowerShell scripts under the signed-in user's existing permissions. It
 > does not elevate, install a service or driver, or run as SYSTEM.
 
 The Store description must disclose that the optional local-service feature

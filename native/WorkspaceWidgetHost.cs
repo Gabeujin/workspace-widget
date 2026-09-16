@@ -19,9 +19,9 @@ using Windows.ApplicationModel;
 [assembly: AssemblyCompany("Workspace Widget Contributors")]
 [assembly: AssemblyProduct("Workspace Widget")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Workspace Widget Contributors")]
-[assembly: AssemblyVersion("0.1.4.0")]
-[assembly: AssemblyFileVersion("0.1.4.0")]
-[assembly: AssemblyInformationalVersion("0.1.4")]
+[assembly: AssemblyVersion("0.2.0.0")]
+[assembly: AssemblyFileVersion("0.2.0.0")]
+[assembly: AssemblyInformationalVersion("0.2.0")]
 
 namespace WorkspaceWidget.Native
 {
@@ -49,6 +49,14 @@ namespace WorkspaceWidget.Native
         [STAThread]
         private static int Main(string[] args)
         {
+            // Service supervisors outlive the UI and must never initialize WPF,
+            // participate in the UI single-instance protocol, or show dialogs.
+            if (args.Length > 0 && String.Equals(args[0],
+                "--service-supervisor", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length != 2) return 2;
+                return ManagedServiceSupervisor.Run(args[1]);
+            }
             TryConfigureNativeProcess();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);

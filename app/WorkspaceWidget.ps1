@@ -31,11 +31,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptRoot 'WidgetExperience.ps1')
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
   $ProjectRoot = Split-Path -Parent $scriptRoot
 }
 
 $defaultStatePath = Join-Path $scriptRoot 'default-state.json'
+if ($StartupProbe -and -not $PSBoundParameters.ContainsKey('StatePath')) {
+  $StatePath = Join-Path ([System.IO.Path]::GetTempPath()) (
+    'WWP-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '\state.json')
+}
 $nativeHostPath = if (
   -not [string]::IsNullOrWhiteSpace($env:WORKSPACE_WIDGET_HOST_PATH) -and
   (Test-Path -LiteralPath $env:WORKSPACE_WIDGET_HOST_PATH -PathType Leaf)
@@ -404,6 +409,7 @@ function Initialize-ItemLaunchMetadata {
       $Item | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value
     }
   }
+  Initialize-ServerRegistration -Item $Item
 }
 
 function Initialize-AppearanceState {
@@ -412,6 +418,7 @@ function Initialize-AppearanceState {
     $WindowState
   )
 
+  Initialize-ExperienceState -WindowState $WindowState
   $appearanceDefaults = [ordered]@{
     theme = 'Midnight'
     accentColor = '#FF3E8BFF'
@@ -626,10 +633,10 @@ function Get-ValidatedStateDocument {
       if (
         $null -ne $candidateState -and
         $candidateState.PSObject.Properties.Name -contains 'schemaVersion' -and
-        [int]$candidateState.schemaVersion -gt 4
+        [int]$candidateState.schemaVersion -gt 5
       ) {
         throw [System.NotSupportedException]::new(
-          "State schema $($candidateState.schemaVersion) is newer than the supported schema 4. " +
+          "State schema $($candidateState.schemaVersion) is newer than the supported schema 5. " +
           'The state file was left unchanged. Upgrade Workspace Widget before opening it.'
         )
       }
@@ -652,6 +659,9 @@ function Get-ValidatedStateDocument {
       throw
     } catch {
       Write-RuntimeLog "State candidate '$candidate' could not be read. $($_.Exception.Message)"
+      if ([string]::Equals([IO.Path]::GetFullPath($candidate),[IO.Path]::GetFullPath($StatePath),[StringComparison]::OrdinalIgnoreCase)) {
+        throw [System.NotSupportedException]::new('The existing state is invalid and was left unchanged. Restore a verified backup before opening Workspace Widget.', $_.Exception)
+      }
     }
   }
   throw 'No valid state document was available.'
@@ -2345,21 +2355,14 @@ function Read-State {
       }
       $item.subtitle = Get-Subtitle -Target ([string]$item.target)
     }
-    $loaded.schemaVersion = 4
+    $loaded.schemaVersion = 5
     return $loaded
   } catch [System.NotSupportedException] {
     Write-RuntimeLog "State read stopped to preserve a newer schema. $($_.Exception.Message)"
     throw
   } catch {
-    Write-RuntimeLog "State read failed; using defaults. $($_.Exception.Message)"
-    $fallback = Get-Content -LiteralPath $defaultStatePath -Raw | ConvertFrom-Json
-    Initialize-AppearanceState -WindowState $fallback.window
-    foreach ($item in @($fallback.items)) {
-      Initialize-ItemLaunchMetadata -Item $item
-      $item.subtitle = Get-Subtitle -Target ([string]$item.target)
-    }
-    $fallback.schemaVersion = 4
-    return $fallback
+    Write-RuntimeLog "State migration stopped; no user state was replaced. $($_.Exception.Message)"
+    throw
   }
 }
 
@@ -2371,15 +2374,15 @@ function Save-State {
 
     $script:state.window.minUiMode = [bool]$script:minUiMode
     if ($script:minUiMode) {
-      $script:state.window.minUiLeft = [math]::Round($script:window.Left, 1)
-      $script:state.window.minUiTop = [math]::Round($script:window.Top, 1)
-      $script:state.window.minUiHeight = [math]::Round($script:window.Height, 1)
+      $script:state.window.minUiLeft = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::LeftProperty), 1)
+      $script:state.window.minUiTop = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::TopProperty), 1)
+      $script:state.window.minUiHeight = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::HeightProperty), 1)
       $script:state.window.minUiOpacity = [math]::Round([double]$script:baseOpacity, 2)
     } else {
-      $script:state.window.left = [math]::Round($script:window.Left, 1)
-      $script:state.window.top = [math]::Round($script:window.Top, 1)
-      $script:state.window.width = [math]::Round($script:window.Width, 1)
-      $script:state.window.height = [math]::Round($script:window.Height, 1)
+      $script:state.window.left = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::LeftProperty), 1)
+      $script:state.window.top = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::TopProperty), 1)
+      $script:state.window.width = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::WidthProperty), 1)
+      $script:state.window.height = [math]::Round([double]$script:window.GetAnimationBaseValue([System.Windows.Window]::HeightProperty), 1)
       $script:state.window.opacity = [math]::Round([double]$script:baseOpacity, 2)
     }
     $script:state.window.hoverBrightness = [bool]$script:hoverBrightness
@@ -2424,6 +2427,108 @@ function Save-State {
 function Convert-ToBrush {
   param([string]$Color)
   return [System.Windows.Media.BrushConverter]::new().ConvertFromString($Color)
+}
+
+function Set-DialogComboBoxStyle {
+  param([System.Windows.Controls.ComboBox]$ComboBox)
+
+  # Own every surface: Windows theme templates can ignore Background and
+  # render white icon/text content on a white selection box or popup.
+  $resources = [System.Windows.Markup.XamlReader]::Parse(@'
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style x:Key="DialogComboItem" TargetType="{x:Type ComboBoxItem}">
+    <Setter Property="Foreground" Value="#FFF6F9FF"/>
+    <Setter Property="Background" Value="#FF0F203B"/>
+    <Setter Property="Padding" Value="8,6"/>
+    <Setter Property="MinHeight" Value="36"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="{x:Type ComboBoxItem}">
+          <Border x:Name="ItemSurface" Background="{TemplateBinding Background}"
+                  BorderBrush="Transparent" BorderThickness="2" CornerRadius="3"
+                  Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="ItemSurface" Property="Background" Value="#FF245B97"/>
+              <Setter TargetName="ItemSurface" Property="BorderBrush" Value="#FF74AEFF"/>
+            </Trigger>
+            <Trigger Property="IsHighlighted" Value="True">
+              <Setter TargetName="ItemSurface" Property="Background" Value="#FF174A78"/>
+              <Setter TargetName="ItemSurface" Property="BorderBrush" Value="#FF74AEFF"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+              <Setter TargetName="ItemSurface" Property="BorderBrush" Value="#FFD9E9FF"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="ItemSurface" Property="Opacity" Value="0.55"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <ControlTemplate x:Key="DialogComboTemplate" TargetType="{x:Type ComboBox}">
+    <Grid x:Name="ComboRoot" SnapsToDevicePixels="True">
+      <ToggleButton x:Name="DropDownToggle" Focusable="False" ClickMode="Press"
+                    IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+        <ToggleButton.Template>
+          <ControlTemplate TargetType="{x:Type ToggleButton}">
+            <Border x:Name="ToggleSurface" Background="#FF0F203B" BorderBrush="#FF53729B"
+                    BorderThickness="1" CornerRadius="4">
+              <Path Data="M 0 0 L 4 4 L 8 0" Stroke="#FFF6F9FF" StrokeThickness="1.5"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="ToggleSurface" Property="Background" Value="#FF174A78"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="ToggleSurface" Property="BorderBrush" Value="#FF74AEFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </ToggleButton.Template>
+      </ToggleButton>
+      <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
+                        ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                        ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                        TextElement.Foreground="{TemplateBinding Foreground}"
+                        Margin="10,4,32,4" VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <Border x:Name="FocusOutline" BorderBrush="Transparent" BorderThickness="2"
+              CornerRadius="4" IsHitTestVisible="False"/>
+      <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
+             IsOpen="{TemplateBinding IsDropDownOpen}"
+             PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}">
+        <Border Background="#FF0F203B" BorderBrush="#FF53729B" BorderThickness="1"
+                CornerRadius="4" Padding="3"
+                Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                MaxHeight="{TemplateBinding MaxDropDownHeight}">
+          <ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+          </ScrollViewer>
+        </Border>
+      </Popup>
+    </Grid>
+    <ControlTemplate.Triggers>
+      <Trigger Property="IsKeyboardFocusWithin" Value="True">
+        <Setter TargetName="FocusOutline" Property="BorderBrush" Value="#FFD9E9FF"/>
+      </Trigger>
+      <Trigger Property="IsEnabled" Value="False">
+        <Setter TargetName="ComboRoot" Property="Opacity" Value="0.55"/>
+      </Trigger>
+    </ControlTemplate.Triggers>
+  </ControlTemplate>
+</ResourceDictionary>
+'@)
+  $ComboBox.Template = $resources['DialogComboTemplate']
+  $ComboBox.ItemContainerStyle = $resources['DialogComboItem']
+  $ComboBox.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FFF6F9FF')
 }
 
 function New-ButtonTemplate {
@@ -2779,6 +2884,7 @@ function Add-Targets {
       glyph = if ($target -match '^https?://') { '' } else { '' }
       hidden = $false
     }
+    Initialize-ItemLaunchMetadata -Item $item
     $script:state.items += $item
     $added++
     Write-RuntimeLog "Add target staged name='$($item.name)' total=$(@($script:state.items).Count)"
@@ -2940,9 +3046,39 @@ function Show-ItemDialog {
 
   $nameBox = Add-DialogField -Label 'Name' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.name }) -Help 'The label shown on the card.'
   $targetBox = Add-DialogField -Label 'URL or local path' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.target }) -Help 'http, https, application, file, folder, or shortcut.'
-  $healthBox = Add-DialogField -Label 'Health URL (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.health }) -Help 'A URL that returns HTTP 2xx or 3xx when healthy.'
-  $startupTargetBox = Add-DialogField -Label 'Node start target (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.startupTarget }) -Help 'A .js/.mjs/.cjs entry file, or a project folder containing package.json.'
-  $startupArgsBox = Add-DialogField -Label 'Start script / arguments (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.startupArgs }) -Help 'For a folder, enter the package script name. For a JS entry file, enter its arguments.'
+  $stack.Children.Add((New-TextBlock -Text 'Shortcut type' -Size 11))|Out-Null
+  $typeBox=[System.Windows.Controls.ComboBox]::new(); $typeBox.Height=38
+  $typeBox.Margin=[System.Windows.Thickness]::new(0,6,0,14); Set-DialogComboBoxStyle $typeBox
+  foreach($definition in @(@('ordinary','Ordinary shortcut'),@('server','Local server'))){
+    $choice=[System.Windows.Controls.ComboBoxItem]::new(); $choice.Tag=$definition[0]; $choice.Content=$definition[1]
+    $typeBox.Items.Add($choice)|Out-Null
+  }
+  $typeBox.SelectedIndex=if($null -ne $ExistingItem -and $ExistingItem.registrationType -eq 'server'){1}else{0}
+  $stack.Children.Add($typeBox)|Out-Null
+  $serverFields=[System.Collections.Generic.List[object]]::new()
+  $serverFieldsStart=$stack.Children.Count
+  $startupTargetBox = Add-DialogField -Label 'Start script' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.startupTarget }) -Help 'Choose a JavaScript or PowerShell script, or a folder containing package.json.'
+  Add-WidgetFilePicker -Panel $stack -TextBox $startupTargetBox -Filter 'Server scripts|*.js;*.mjs;*.cjs;*.ps1'
+  $startupArgsBox = Add-DialogField -Label 'Start arguments' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.startupArgs }) -Help 'For a folder, enter its package script name. For a script file, enter its arguments.'
+  $stopTargetBox = Add-DialogField -Label 'Stop script' -Value $(if ($null -eq $ExistingItem -or [string]::IsNullOrWhiteSpace($ExistingItem.stopTarget)) { Join-Path $scriptRoot 'managed-stop.mjs' } else { [string]$ExistingItem.stopTarget }) -Help 'Choose a trusted JavaScript or PowerShell stop script. The built-in helper stops only a verified Widget-owned server.'
+  Add-WidgetFilePicker -Panel $stack -TextBox $stopTargetBox -Filter 'Server scripts|*.js;*.mjs;*.cjs;*.ps1'
+  $stopArgsBox=Add-DialogField -Label 'Stop arguments' -Value $(if($null -eq $ExistingItem){''}else{[string]$ExistingItem.stopArgs}) -Help 'Arguments passed to the configured stop script, without a command shell.'
+  $stack.Children.Add((New-TextBlock -Text 'Health checks' -Size 12))|Out-Null
+  $healthRows=[System.Windows.Controls.StackPanel]::new(); $healthRows.Margin=[System.Windows.Thickness]::new(0,6,0,0)
+  $stack.Children.Add($healthRows)|Out-Null
+  if($null -ne $ExistingItem -and @($ExistingItem.healthChecks).Count -gt 0){
+    foreach($check in $ExistingItem.healthChecks){ Add-HealthEditorRow $healthRows ([string]$check.name) ([string]$check.url) }
+  } else { Add-HealthEditorRow $healthRows 'Primary' '' }
+  $addHealth=[System.Windows.Controls.Button]::new(); $addHealth.Content='Add health check'; $addHealth.Height=30
+  $addHealth.Margin=[System.Windows.Thickness]::new(0,0,0,14); $addHealth.Tag=$healthRows
+  $addHealth.Add_Click({param($sender,$e) if($sender.Tag.Children.Count -lt 16){Add-HealthEditorRow $sender.Tag '' ''}})
+  $stack.Children.Add($addHealth)|Out-Null
+  for($i=$serverFieldsStart;$i -lt $stack.Children.Count;$i++){$serverFields.Add($stack.Children[$i])}
+  $typeBox.Tag=$serverFields
+  $typeBox.Add_SelectionChanged({param($sender,$e)
+    foreach($field in $sender.Tag){$field.Visibility=if($sender.SelectedItem.Tag -eq 'server'){'Visible'}else{'Collapsed'}}
+  })
+  foreach($field in $serverFields){$field.Visibility=if($typeBox.SelectedIndex -eq 1){'Visible'}else{'Collapsed'}}
   $semanticIconLabel = New-TextBlock `
     -Text 'Built-in icon (optional)' `
     -Size 11 `
@@ -2957,6 +3093,7 @@ function Show-ItemDialog {
   $semanticIconBox.Foreground = Convert-ToBrush '#FFF6F9FF'
   $semanticIconBox.BorderBrush = Convert-ToBrush '#665C8AC6'
   $semanticIconBox.MaxDropDownHeight = 294
+  Set-DialogComboBoxStyle -ComboBox $semanticIconBox
   $semanticIconBox.ToolTip = 'Choose an original Workspace Widget semantic icon, or keep automatic target icon resolution.'
   [System.Windows.Automation.AutomationProperties]::SetName(
     $semanticIconBox,
@@ -3047,6 +3184,7 @@ function Show-ItemDialog {
   $stack.Children.Add($semanticIconBox) | Out-Null
 
   $customIconBox = Add-DialogField -Label 'Custom icon image (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.customIcon }) -Help 'A verified custom icon takes priority over the built-in selection. Use a local image, clipboard image, or public HTTPS PNG, JPG, GIF, ICO, BMP, or static SVG URL.'
+  Add-WidgetFilePicker -Panel $stack -TextBox $customIconBox -Filter 'Images|*.png;*.jpg;*.jpeg;*.bmp;*.ico;*.gif'
   $customIconPreviewRow = [System.Windows.Controls.Grid]::new()
   $customIconPreviewRow.Margin = [System.Windows.Thickness]::new(0, -2, 0, 12)
   $customIconPreviewRow.ColumnDefinitions.Add(
@@ -3145,6 +3283,7 @@ function Show-ItemDialog {
   $customIconPreviewInfo.Children.Add($customIconActions) | Out-Null
   $stack.Children.Add($customIconPreviewRow) | Out-Null
   $hoverMediaBox = Add-DialogField -Label 'Hover media (optional)' -Value $(if ($null -eq $ExistingItem) { '' } else { [string]$ExistingItem.hoverMedia }) -Help 'A local image, GIF, MP4/WMV video, public HTTPS image, or YouTube link.'
+  Add-WidgetFilePicker -Panel $stack -TextBox $hoverMediaBox -Filter 'Media|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.mp4;*.wmv;*.m4v'
   $hoverMuteCheck = [System.Windows.Controls.CheckBox]::new()
   $hoverMuteCheck.Content = 'Mute hover video'
   $hoverMuteCheck.IsChecked = if ($null -eq $ExistingItem) {
@@ -3753,9 +3892,27 @@ function Show-ItemDialog {
   $save.Add_Click({
       $name = $nameBox.Text.Trim()
       $targetInput = $targetBox.Text.Trim()
-      $health = $healthBox.Text.Trim()
+      $registrationType=[string]$typeBox.SelectedItem.Tag
+      $healthChecks=@()
+      if($registrationType -eq 'server'){
+        $seenHealth=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach($row in $healthRows.Children){
+          $uri=Get-ValidatedWebUri -Value $row.Tag.url.Text.Trim()
+          if($null -eq $uri -or -not (Test-LoopbackWebUri $uri) -or -not $seenHealth.Add($uri.AbsoluteUri)){
+            [System.Windows.MessageBox]::Show($dialog,(Get-WidgetText 'Enter unique local health URLs.'),'Workspace')|Out-Null; return
+          }
+          $healthChecks+= [pscustomobject]@{name=$row.Tag.name.Text.Trim();url=$uri.AbsoluteUri}
+        }
+        if($healthChecks.Count -lt 1 -or $healthChecks.Count -gt 16){return}
+        if([string]::IsNullOrWhiteSpace($startupTargetBox.Text) -or -not (Test-Path -LiteralPath $stopTargetBox.Text.Trim() -PathType Leaf) -or [IO.Path]::GetExtension($stopTargetBox.Text.Trim()) -notmatch '^\.(js|mjs|cjs|ps1)$'){
+          [System.Windows.MessageBox]::Show($dialog,(Get-WidgetText 'Choose existing start and stop scripts.'),'Workspace')|Out-Null; return
+        }
+      }
+      $health = if($healthChecks.Count -gt 0){[string]$healthChecks[0].url}else{''}
       $startupTarget = $startupTargetBox.Text.Trim()
       $startupArgs = $startupArgsBox.Text.Trim()
+      $stopTarget=$stopTargetBox.Text.Trim(); $stopArgs=$stopArgsBox.Text.Trim()
+      if($registrationType -eq 'ordinary'){$startupTarget='';$startupArgs='';$stopTarget='';$stopArgs=''}
       $customIcon = $customIconBox.Text.Trim()
       $customIconCache = if ($customIcon -match '^https://') {
         [string]$customIconPreviewState.cachePath
@@ -3994,7 +4151,7 @@ function Show-ItemDialog {
             ) | Out-Null
             return
           }
-        } elseif ([System.IO.Path]::GetExtension($startupTarget) -notmatch '^\.(js|mjs|cjs)$') {
+        } elseif ([System.IO.Path]::GetExtension($startupTarget) -notmatch '^\.(js|mjs|cjs|ps1)$') {
           [System.Windows.MessageBox]::Show(
             $dialog,
             'A Node entry file must end in .js, .mjs, or .cjs.',
@@ -4015,6 +4172,10 @@ function Show-ItemDialog {
           target = $target
           subtitle = Get-Subtitle -Target $target
           health = $health
+          registrationType = $registrationType
+          healthChecks = $healthChecks
+          stopTarget = $stopTarget
+          stopArgs = $stopArgs
           startupTarget = $startupTarget
           startupArgs = $startupArgs
           launchArguments = $launchArguments
@@ -4040,6 +4201,10 @@ function Show-ItemDialog {
         $ExistingItem.target = $target
         $ExistingItem.subtitle = Get-Subtitle -Target $target
         $ExistingItem.health = $health
+        $ExistingItem.registrationType = $registrationType
+        $ExistingItem.healthChecks = $healthChecks
+        $ExistingItem.stopTarget = $stopTarget
+        $ExistingItem.stopArgs = $stopArgs
         $ExistingItem.startupTarget = $startupTarget
         $ExistingItem.startupArgs = $startupArgs
         $ExistingItem.launchArguments = $launchArguments
@@ -4112,6 +4277,7 @@ function Show-ItemDialog {
         $customIconPreviewState.webView = $null
       }
     })
+  Set-WidgetLocalizedTree $dialog
   return $dialog.ShowDialog()
 }
 
@@ -4218,6 +4384,7 @@ function Test-HasNodeStartup {
   param($Item)
 
   return (
+    ($Item.PSObject.Properties.Name -notcontains 'registrationType' -or $Item.registrationType -eq 'server') -and
     $Item.PSObject.Properties.Name -contains 'startupTarget' -and
     -not [string]::IsNullOrWhiteSpace([string]$Item.startupTarget)
   )
@@ -4225,14 +4392,10 @@ function Test-HasNodeStartup {
 
 function Test-HasHealthCheck {
   param($Item)
-
-  if (
-    $Item.PSObject.Properties.Name -notcontains 'health' -or
-    [string]::IsNullOrWhiteSpace([string]$Item.health)
-  ) {
-    return $false
-  }
-  return $null -ne (Get-ValidatedWebUri -Value ([string]$Item.health))
+  $urls=@(Get-ItemHealthUrls $Item)
+  if($urls.Count -lt 1 -or $urls.Count -gt 16){return $false}
+  foreach($url in $urls){if($null -eq (Get-ValidatedWebUri -Value $url)){return $false}}
+  return $true
 }
 
 function Open-ItemTarget {
@@ -4377,7 +4540,7 @@ function Resolve-NodeStartupConfiguration {
     }
   }
 
-  if ([System.IO.Path]::GetExtension($resolvedTarget) -notmatch '^\.(js|mjs|cjs)$') {
+  if ([System.IO.Path]::GetExtension($resolvedTarget) -notmatch '^\.(js|mjs|cjs|ps1)$') {
     throw 'A Node entry file must end in .js, .mjs, or .cjs.'
   }
   $resolvedWorkingDirectory = Split-Path -Parent $resolvedTarget
@@ -4404,6 +4567,62 @@ function Resolve-NodeStartupConfiguration {
   }
 }
 
+function Initialize-ManagedServerClient {
+  if ($null -ne ('WorkspaceWidget.Native.ManagedServiceClient' -as [type])) { return }
+  if (-not (Test-Path -LiteralPath $nativeHostPath -PathType Leaf)) {
+    throw 'The native server supervisor is unavailable. Build or reinstall Workspace Widget.'
+  }
+  [void][System.Reflection.Assembly]::LoadFrom($nativeHostPath)
+  if ($null -eq ('WorkspaceWidget.Native.ManagedServiceClient' -as [type])) {
+    throw 'This native host needs an update before it can manage servers.'
+  }
+}
+
+function Get-LocalServerContractDigest {
+  param($Item)
+
+  $workingDirectory = if ($Item.PSObject.Properties.Name -contains 'workingDirectory') {
+    [string]$Item.workingDirectory
+  } else { '' }
+  $contract = [ordered]@{
+    version = 2
+    startupTarget = [IO.Path]::GetFullPath(
+      [Environment]::ExpandEnvironmentVariables(([string]$Item.startupTarget).Trim())
+    ).ToLowerInvariant()
+    arguments = ([string]$Item.startupArgs).Trim()
+    workingDirectory = if ([string]::IsNullOrWhiteSpace($workingDirectory)) { '' } else {
+      [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables(
+        $workingDirectory.Trim())).ToLowerInvariant()
+    }
+    healthChecks = @(Get-ItemHealthUrls $Item)
+    stopTarget = ([IO.Path]::GetFullPath([string]$Item.stopTarget)).ToLowerInvariant()
+    stopArgs = [string]$Item.stopArgs
+  }
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try {
+    return [BitConverter]::ToString($hasher.ComputeHash(
+      [Text.Encoding]::UTF8.GetBytes(($contract | ConvertTo-Json -Compress))
+    )).Replace('-', '').ToLowerInvariant()
+  } finally { $hasher.Dispose() }
+}
+
+function Get-ManagedLocalServerStatus {
+  param($Item)
+
+  try {
+    Initialize-ManagedServerClient
+    return [WorkspaceWidget.Native.ManagedServiceClient]::StatusV2(
+      $runtimeRoot, [string]$Item.id,
+      (Get-LocalServerContractDigest -Item $Item), (Get-ItemHealthJson $Item)
+    ) | ConvertFrom-Json
+  } catch {
+    return [pscustomobject]@{
+      success = $false; state = 'Ambiguous'; owned = $false; stoppable = $false
+      error = 'Server ownership could not be verified. Check the lifecycle records or update the native host.'
+    }
+  }
+}
+
 function Start-LocalServer {
   param($Item)
 
@@ -4414,172 +4633,171 @@ function Start-LocalServer {
     [string]::IsNullOrWhiteSpace($bundledNodePath) -or
     -not (Test-Path -LiteralPath $bundledNodePath -PathType Leaf)
   ) {
-    $runtimeHelp = if ($packageRuntimeEnforced) {
-      'The package-local runtime is missing or damaged. Reinstall Workspace Widget.'
-    } else {
-      'Add runtime\node\node.exe or configure a development-only WORKSPACE_WIDGET_NODE override.'
-    }
-    throw "No supported Node runtime was found. $runtimeHelp"
+    throw 'The supported Node runtime is unavailable. Reinstall Workspace Widget or configure a development runtime.'
   }
-
-  $itemId = [string]$Item.id
-  if ($script:serverProcesses.ContainsKey($itemId)) {
-    try {
-      if (-not $script:serverProcesses[$itemId].HasExited) {
-        return $true
-      }
-    } catch {
-      # A stale process handle is replaced below.
-    }
+  $healthUri = Get-ValidatedWebUri -Value ([string]$Item.health)
+  if (-not (Test-LoopbackWebUri -Uri $healthUri)) {
+    throw 'Automatic Node startup requires a loopback health URL.'
   }
-
+  Initialize-ManagedServerClient
   $configuredWorkingDirectory = if (
     $Item.PSObject.Properties.Name -contains 'workingDirectory'
-  ) {
-    [string]$Item.workingDirectory
-  } else {
-    ''
-  }
-  $startupConfiguration = Resolve-NodeStartupConfiguration `
-    -Target ([string]$Item.startupTarget) `
-    -Arguments ([string]$Item.startupArgs) `
-    -WorkingDirectory $configuredWorkingDirectory
+  ) { [string]$Item.workingDirectory } else { '' }
+  $startupConfiguration = Resolve-NodeStartupConfiguration -Target ([string]$Item.startupTarget) -Arguments ([string]$Item.startupArgs) -WorkingDirectory $configuredWorkingDirectory
   $startupTarget = [string]$startupConfiguration.target
   $startupArgs = [string]$startupConfiguration.arguments
-  $previousPath = $env:PATH
-  $bundledNodeDirectory = Split-Path -Parent $bundledNodePath
-  $bundledOverrideDirectory = Join-Path $projectRuntimeRoot 'bin\override'
-
-  try {
-    $env:PATH = "$bundledNodeDirectory;$bundledOverrideDirectory;$previousPath"
-    if ($startupConfiguration.kind -eq 'project') {
-      $packageRunnerPath = $bundledPnpmPath
-      $packageRunnerName = 'pnpm'
-      if (
-        [string]::IsNullOrWhiteSpace($packageRunnerPath) -or
-        -not (Test-Path -LiteralPath $packageRunnerPath -PathType Leaf)
-      ) {
-        $packageRunnerPath = $bundledNpmPath
-        $packageRunnerName = 'npm'
-      }
-      if (
-        [string]::IsNullOrWhiteSpace($packageRunnerPath) -or
-        -not (Test-Path -LiteralPath $packageRunnerPath -PathType Leaf)
-      ) {
-        throw (
-          'No supported package runner was found. ' +
-          'Add runtime\node\npm.cmd, runtime\pnpm\pnpm.cmd, or configure an override.'
-        )
-      }
-      $scriptName = $startupArgs
-      $process = Start-Process `
-        -FilePath $packageRunnerPath `
-        -ArgumentList "run `"$scriptName`"" `
-        -WorkingDirectory $startupTarget `
-        -WindowStyle Hidden `
-        -PassThru
-      Write-RuntimeLog "Started '$($Item.name)' with bundled $packageRunnerName script '$scriptName'. PID=$($process.Id)"
-    } else {
-      $workingDirectory = [string]$startupConfiguration.workingDirectory
-      $argumentLine = "`"$startupTarget`""
-      if (-not [string]::IsNullOrWhiteSpace($startupArgs)) {
-        $argumentLine += " $startupArgs"
-      }
-      $process = Start-Process `
-        -FilePath $bundledNodePath `
-        -ArgumentList $argumentLine `
-        -WorkingDirectory $workingDirectory `
-        -WindowStyle Hidden `
-        -PassThru
-      Write-RuntimeLog "Started '$($Item.name)' with bundled Node. PID=$($process.Id)"
+  $workingDirectory = [string]$startupConfiguration.workingDirectory
+  $executable = $bundledNodePath
+  $argumentLine = '"' + $startupTarget + '"'
+  if([IO.Path]::GetExtension($startupTarget) -ieq '.ps1'){
+    $executable=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $argumentLine='-NoLogo -NoProfile -NonInteractive -File "' + $startupTarget + '"'
+  }
+  if ($startupConfiguration.kind -eq 'project') {
+    $packageRunnerPath = $bundledPnpmPath
+    if ([string]::IsNullOrWhiteSpace($packageRunnerPath) -or
+        -not (Test-Path -LiteralPath $packageRunnerPath -PathType Leaf)) {
+      $packageRunnerPath = $bundledNpmPath
     }
+    if ([string]::IsNullOrWhiteSpace($packageRunnerPath) -or
+        -not (Test-Path -LiteralPath $packageRunnerPath -PathType Leaf)) {
+      throw 'The supported npm or pnpm package runner is unavailable.'
+    }
+    # Only the trusted package runner and the validated script name enter cmd.
+    # The entire wrapper/child tree is assigned to the supervisor's Job Object.
+    if ($packageRunnerPath -match '[\x00"%&|<>^!()\r\n]' -or
+        $workingDirectory -match '[\x00"%&|<>^!()\r\n]') {
+      throw 'The package runner path contains unsupported shell characters.'
+    }
+    $trustedPackageRunners = @(
+      (Join-Path $ProjectRoot 'runtime\node\npm.cmd'),
+      (Join-Path $ProjectRoot 'runtime\pnpm\pnpm.cmd')
+    )
+    if ($trustedPackageRunners -notcontains [IO.Path]::GetFullPath($packageRunnerPath)) {
+      throw 'Managed package startup requires the package-local npm or pnpm runner. Reinstall Workspace Widget.'
+    }
+    $executable = Join-Path $env:SystemRoot 'System32\cmd.exe'
+    $argumentLine = '/d /s /c ""' + $packageRunnerPath + '" run "' + $startupArgs + '""'
+  } elseif (-not [string]::IsNullOrWhiteSpace($startupArgs)) {
+    $argumentLine += ' ' + $startupArgs
   }
-  finally {
-    $env:PATH = $previousPath
-  }
-
-  $script:serverProcesses[$itemId] = $process
-  return $true
-}
-
-function Stop-ProcessTree {
-  param(
-    [Parameter(Mandatory = $true)]
-    [System.Diagnostics.Process]$Process
+  $pathValue = (Split-Path -Parent $bundledNodePath) + ';' +
+    (Join-Path $projectRuntimeRoot 'bin\override') + ';' + $env:PATH
+  $startTask = [WorkspaceWidget.Native.ManagedServiceClient]::StartV2Async(
+    $nativeHostPath, $runtimeRoot, [string]$Item.id,
+    (Get-LocalServerContractDigest -Item $Item), $executable, $argumentLine,
+    $workingDirectory, (Get-ItemHealthJson $Item), [string]$Item.stopTarget, [string]$Item.stopArgs, $pathValue
   )
-
-  if ($Process.HasExited) {
-    return $true
+  $result = Wait-ServerLifecycleTask -Task $startTask -Item $Item -Action Start
+  if (-not $result.success -or -not $result.owned) {
+    throw "Server start refused ($($result.state)). $($result.error)"
   }
-  $taskKillPath = Join-Path $env:SystemRoot 'System32\taskkill.exe'
-  if (-not (Test-Path -LiteralPath $taskKillPath -PathType Leaf)) {
-    throw 'Windows taskkill.exe was not found.'
-  }
-  $taskKillOutput = @(& $taskKillPath /PID $Process.Id /T /F 2>&1)
-  try {
-    $Process.WaitForExit(5000)
-    $Process.Refresh()
-  } catch {
-    # The explicit process-state check below remains authoritative.
-  }
-  if (-not $Process.HasExited) {
-    throw "The tracked process tree did not stop. PID=$($Process.Id). $($taskKillOutput -join ' ')"
-  }
+  # This handle is a convenience for probes; only the persisted, authenticated
+  # supervisor contract grants lifecycle ownership.
+  $script:serverProcesses[[string]$Item.id] = [Diagnostics.Process]::GetProcessById([int]$result.processId)
+  Write-RuntimeLog "Started owned server '$($Item.id)'. Supervisor=$($result.processId) instance=$($result.instanceId)"
   return $true
 }
 
 function Test-TrackedLocalServer {
   param($Item)
+  return [bool](Get-ManagedLocalServerStatus -Item $Item).stoppable
+}
 
-  $itemId = [string]$Item.id
-  if (-not $script:serverProcesses.ContainsKey($itemId)) {
-    return $false
+function Wait-ServerLifecycleTask {
+  param($Task, $Item, [ValidateSet('Start','Stop')][string]$Action='Stop')
+
+  if ($StartupProbe -or $null -eq $script:window) {
+    return $Task.GetAwaiter().GetResult() | ConvertFrom-Json
   }
-
+  # A nested WPF message loop keeps painting and input responsive while the
+  # native client waits for graceful shutdown. No PowerShell runs on a worker.
+  $dialog = [System.Windows.Window]::new()
+  $dialog.Title = Get-WidgetText $Action
+  $dialog.Owner = $script:window
+  $dialog.WindowStartupLocation = 'CenterOwner'
+  $dialog.ResizeMode = 'NoResize'
+  $dialog.ShowInTaskbar = $false
+  $dialog.Width = 380
+  $dialog.Height = 150
+  $dialog.Background = Convert-ToBrush '#FF09162B'
+  $panel = [System.Windows.Controls.StackPanel]::new()
+  $panel.Margin = [System.Windows.Thickness]::new(20)
+  $label = [System.Windows.Controls.TextBlock]::new()
+  $label.Text = ('{0} · {1}' -f $Item.name,(Get-WidgetText $(if($Action -eq 'Start'){'Starting server...'}else{'Stopping server...'})))
+  $label.TextWrapping = 'Wrap'
+  $label.Foreground = [System.Windows.Media.Brushes]::White
+  $label.Margin = [System.Windows.Thickness]::new(0,0,0,16)
+  [void]$panel.Children.Add($label)
+  $progress = [System.Windows.Controls.ProgressBar]::new()
+  $progress.Height = 5
+  $progress.IsIndeterminate = Test-WidgetMotionEnabled
+  [void]$panel.Children.Add($progress)
+  $dialog.Content = $panel
+  $operation = [pscustomobject]@{ task=$Task; dialog=$dialog; finished=$false }
+  $dialog.Tag = $operation
+  $dialog.Add_Closing({
+    param($sender,$eventArgs)
+    if (-not $sender.Tag.finished) { $eventArgs.Cancel = $true }
+  })
+  $timer = [System.Windows.Threading.DispatcherTimer]::new()
+  $timer.Interval = [TimeSpan]::FromMilliseconds(100)
+  $timer.Add_Tick({
+    param($sender,$eventArgs)
+    if ($operation.task.IsCompleted) {
+      $sender.Stop()
+      $operation.finished = $true
+      $operation.dialog.Close()
+    }
+  }.GetNewClosure())
   try {
-    $process = $script:serverProcesses[$itemId]
-    return $null -ne $process -and -not $process.HasExited
-  } catch {
-    return $false
-  }
+    $timer.Start()
+    [void]$dialog.ShowDialog()
+    return $Task.GetAwaiter().GetResult() | ConvertFrom-Json
+  } finally { $timer.Stop() }
 }
 
 function Stop-TrackedLocalServer {
-  param(
-    $Item,
-    [switch]$ConfirmForce,
-    [switch]$AllowMissing
-  )
+  param($Item, [switch]$ConfirmForce, [switch]$AllowMissing)
 
   $itemId = [string]$Item.id
-  if (-not $script:serverProcesses.ContainsKey($itemId)) {
-    return [bool]$AllowMissing
-  }
-
-  $process = $script:serverProcesses[$itemId]
+  # Allow cooperating servers to drain nested services before offering force.
+  $gracefulTimeoutMs = 40000
   try {
-    if ($null -ne $process -and -not $process.HasExited) {
-      if ($ConfirmForce) {
-        $confirmation = [System.Windows.MessageBox]::Show(
-          $script:window,
-          "Workspace Widget will force-stop only the server process tree it started for '$($Item.name)' (PID $($process.Id)).`n`nUnsaved server work may be lost. Continue?",
-          'Force-stop local server',
-          [System.Windows.MessageBoxButton]::YesNo,
-          [System.Windows.MessageBoxImage]::Warning,
-          [System.Windows.MessageBoxResult]::No
-        )
-        if ($confirmation -ne [System.Windows.MessageBoxResult]::Yes) {
-          Write-RuntimeLog "Tracked server stop canceled for '$itemId'. PID=$($process.Id)"
-          return $false
-        }
-      }
-      Stop-ProcessTree -Process $process | Out-Null
-      Write-RuntimeLog "Stopped tracked server '$($Item.name)'. PID=$($process.Id)"
+    $status = Get-ManagedLocalServerStatus -Item $Item
+    if ($status.state -eq 'Stopped') { return [bool]$AllowMissing }
+    if (-not $status.stoppable) {
+      Write-RuntimeLog "Server stop refused for '$itemId': ownership not verified."
+      return $false
+    }
+    $digest = Get-LocalServerContractDigest -Item $Item
+    $task = [WorkspaceWidget.Native.ManagedServiceClient]::StopV2Async(
+      $runtimeRoot, $itemId, $digest, (Get-ItemHealthJson $Item), [string]$Item.stopTarget, [string]$Item.stopArgs, $false, $gracefulTimeoutMs)
+    $result = Wait-ServerLifecycleTask -Task $task -Item $Item
+    if ($result.state -eq 'NeedsForce') {
+      # Probes never implicitly force; fixtures must implement graceful stop.
+      if (-not $ConfirmForce) { return $false }
+      $confirmation = [System.Windows.MessageBox]::Show(
+        $script:window,
+        "The server '$($Item.name)' did not finish stopping within 40 seconds." + [Environment]::NewLine + [Environment]::NewLine +
+        'Force-stop its verified process group? Unsaved server work may be lost.',
+        'Force-stop local server',
+        [System.Windows.MessageBoxButton]::YesNo,
+        [System.Windows.MessageBoxImage]::Warning,
+        [System.Windows.MessageBoxResult]::No)
+      if ($confirmation -ne [System.Windows.MessageBoxResult]::Yes) { return $false }
+      $task = [WorkspaceWidget.Native.ManagedServiceClient]::StopV2Async(
+        $runtimeRoot, $itemId, $digest, (Get-ItemHealthJson $Item), [string]$Item.stopTarget, [string]$Item.stopArgs, $true, $gracefulTimeoutMs)
+      $result = Wait-ServerLifecycleTask -Task $task -Item $Item
+    }
+    Write-RuntimeLog "Server stop '$itemId': $($result.state). Receipt=$($result.receiptPath)"
+    if (-not $result.success -or -not $result.jobEmpty -or -not $result.healthOffline) {
+      return $false
     }
     [void]$script:serverProcesses.Remove($itemId)
     return $true
   } catch {
-    Write-RuntimeLog "Tracked server stop failed for '$itemId'. $($_.Exception.Message)"
+    Write-RuntimeLog "Server stop failed for '$itemId'. $($_.Exception.Message)"
     return $false
   }
 }
@@ -4625,7 +4843,7 @@ function Queue-NodeStart {
   if ($healthKnown) {
     if ($RestartTrackedProcess) {
       if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce -AllowMissing)) {
-        Show-Toast -Message "Restart canceled for $($Item.name)"
+        Show-Toast -Message "Restart not performed: stop was not confirmed for $($Item.name)"
         return
       }
     }
@@ -4667,7 +4885,7 @@ function Invoke-ServerLifecycleMenuAction {
   $itemId = [string]$Item.id
   if (Test-TrackedLocalServer -Item $Item) {
     if (-not (Stop-TrackedLocalServer -Item $Item -ConfirmForce)) {
-      Show-Toast -Message "Stop canceled for $($Item.name)"
+      Show-Toast -Message "Stop not confirmed for $($Item.name). Check server status and the runtime log."
       return
     }
     if ($script:pendingOpen.ContainsKey($itemId)) {
@@ -4682,8 +4900,8 @@ function Invoke-ServerLifecycleMenuAction {
   Queue-NodeServerRecovery -Item $Item
 }
 
-function Update-ServerRecoveryMenuItem {
-  param($MenuItem)
+function Set-ServerRecoveryMenuState {
+  param($MenuItem, $Ownership)
 
   if ($null -eq $MenuItem -or $null -eq $MenuItem.Tag) {
     return
@@ -4691,15 +4909,21 @@ function Update-ServerRecoveryMenuItem {
 
   $item = $MenuItem.Tag
   $itemId = [string]$item.id
-  if (Test-TrackedLocalServer -Item $item) {
+  if ([bool]$Ownership.stoppable) {
     $MenuItem.Header = 'Stop server...'
-    $MenuItem.ToolTip = 'Force-stops only the process tree started and tracked by this Widget. Confirmation is required.'
+    $MenuItem.ToolTip = 'Ownership is verified against the saved launch and live supervisor, not the application code. Stop requests cleanup; a verified force-stop needs confirmation after timeout.'
     $MenuItem.IsEnabled = $true
     return
   }
 
   $healthKnown = $script:healthStates.ContainsKey($itemId)
   $healthy = $healthKnown -and [bool]$script:healthStates[$itemId]
+  if ($Ownership.state -in @('RunningUnowned', 'Ambiguous')) {
+    $MenuItem.Header = 'Server ownership not verified'
+    $MenuItem.ToolTip = 'This server was started outside the current verified launch contract. Use its own controls to stop it.'
+    $MenuItem.IsEnabled = $false
+    return
+  }
   if ($healthy) {
     $MenuItem.Header = 'Server is online'
     $MenuItem.ToolTip = 'The configured health endpoint is responding.'
@@ -4710,6 +4934,51 @@ function Update-ServerRecoveryMenuItem {
   $MenuItem.Header = if ($healthKnown) { 'Restart server' } else { 'Check and restart server' }
   $MenuItem.ToolTip = 'Runs the trusted Node start target and waits for the health endpoint.'
   $MenuItem.IsEnabled = $true
+}
+
+function Update-ServerRecoveryMenuItem {
+  param($MenuItem)
+
+  if ($null -eq $MenuItem -or $null -eq $MenuItem.Tag) { return }
+  $MenuItem.Header = 'Checking server ownership...'
+  $MenuItem.ToolTip = 'Checking the saved launch and its live supervisor.'
+  $MenuItem.IsEnabled = $false
+  try {
+    Initialize-ManagedServerClient
+    $item = $MenuItem.Tag
+    $operation = [pscustomobject]@{
+      menu = $MenuItem
+      item = $item
+      task = [WorkspaceWidget.Native.ManagedServiceClient]::StatusAsync(
+        $runtimeRoot, [string]$item.id,
+        (Get-LocalServerContractDigest -Item $item), [string]$item.health)
+    }
+    $timer = [System.Windows.Threading.DispatcherTimer]::new()
+    $timer.Tag = $operation
+    $timer.Interval = [TimeSpan]::FromMilliseconds(100)
+    $timer.Add_Tick({
+      param($sender, $eventArgs)
+      # Keep callbacks in the application session state. GetNewClosure creates
+      # a dynamic module that cannot resolve script-local menu helpers.
+      $operation = $sender.Tag
+      if (-not [object]::ReferenceEquals($operation.menu.Tag, $operation.item)) {
+        $sender.Stop()
+        return
+      }
+      if (-not $operation.task.IsCompleted) { return }
+      $sender.Stop()
+      try {
+        $result = $operation.task.GetAwaiter().GetResult() | ConvertFrom-Json
+      } catch {
+        $result = [pscustomobject]@{ state = 'Ambiguous'; stoppable = $false }
+      }
+      Set-ServerRecoveryMenuState -MenuItem $operation.menu -Ownership $result
+    })
+    $timer.Start()
+  } catch {
+    Set-ServerRecoveryMenuState -MenuItem $MenuItem -Ownership (
+      [pscustomobject]@{ state = 'Ambiguous'; stoppable = $false })
+  }
 }
 
 function Launch-Item {
@@ -4740,7 +5009,7 @@ function Launch-Item {
 function New-ContextMenuItem {
   param([string]$Header)
   $menuItem = [System.Windows.Controls.MenuItem]::new()
-  $menuItem.Header = $Header
+  $menuItem.Header = Get-WidgetText $Header
   $menuItem.Foreground = Convert-ToBrush '#FFF6F9FF'
   $menuItem.Background = Convert-ToBrush '#FF0F203B'
   $menuItem.Padding = [System.Windows.Thickness]::new(14, 7, 20, 7)
@@ -6311,6 +6580,8 @@ function Show-AppearanceDialog {
   $themeBox.Margin = [System.Windows.Thickness]::new(0, 0, 0, 12)
   $themeBox.Background = Convert-ToBrush '#FF0F203B'
   $themeBox.Foreground = Convert-ToBrush '#FFF6F9FF'
+  $themeBox.MaxDropDownHeight = 294
+  Set-DialogComboBoxStyle -ComboBox $themeBox
   $stack.Children.Add($themeBox) | Out-Null
 
   function Add-AppearanceTextField {
@@ -6968,10 +7239,11 @@ function Set-LauncherCardHealthPresentation {
     'Offline' { 'Offline · click card to start with bundled Node' }
     default { $State }
   }
+  $statusText = Get-WidgetText $statusText
   $dot.ToolTip = $statusText
   [System.Windows.Automation.AutomationProperties]::SetName(
     $dot,
-    "$($Item.name) status: $statusText"
+    ((Get-WidgetText '{0} status: {1}') -f $Item.name, $statusText)
   )
   [System.Windows.Automation.AutomationProperties]::SetLiveSetting(
     $dot,
@@ -6982,11 +7254,11 @@ function Set-LauncherCardHealthPresentation {
   if ($null -ne $card) {
     [System.Windows.Automation.AutomationProperties]::SetName(
       $card,
-      "Open $($Item.name). Status: $statusText."
+      ((Get-WidgetText 'Open {0}. Status: {1}.') -f $Item.name, $statusText)
     )
     [System.Windows.Automation.AutomationProperties]::SetHelpText(
       $card,
-      "Target: $($Item.target). Health status: $statusText."
+      ((Get-WidgetText 'Target: {0}. Health status: {1}.') -f $Item.target, $statusText)
     )
   }
   if ($Announce) {
@@ -7239,36 +7511,7 @@ function New-LauncherCard {
   </Border>
 </ControlTemplate>
 '@)
-  if ((Test-HasNodeStartup -Item $Item) -and (Test-HasHealthCheck -Item $Item)) {
-    $serverRecovery = New-ContextMenuItem -Header 'Check and restart server'
-    $serverRecovery.Tag = $Item
-    Update-ServerRecoveryMenuItem -MenuItem $serverRecovery
-    $serverRecovery.Add_Click({
-        param($sender, $eventArgs)
-        try {
-          Invoke-ServerLifecycleMenuAction -Item $sender.Tag
-        } catch {
-          Show-Toast -Message "Could not change $($sender.Tag.name) server state"
-          Write-RuntimeLog "Server lifecycle request failed for '$($sender.Tag.id)'. $($_.Exception.Message)"
-        }
-      })
-    $context.Items.Add($serverRecovery) | Out-Null
-    $context.Tag = $serverRecovery
-    $context.Add_Opened({
-        param($sender, $eventArgs)
-        Update-ServerRecoveryMenuItem -MenuItem $sender.Tag
-      })
-  } elseif (Test-HasHealthCheck -Item $Item) {
-    $configureRecovery = New-ContextMenuItem -Header 'Configure server restart...'
-    $configureRecovery.ToolTip = 'Add a trusted Node start target before this shortcut can restart its server.'
-    $configureRecovery.Tag = $Item
-    $configureRecovery.Add_Click({
-        param($sender, $eventArgs)
-        Show-ItemDialog -ExistingItem $sender.Tag | Out-Null
-      })
-    $context.Items.Add($configureRecovery) | Out-Null
-  }
-
+  Add-WidgetServerMenuItems -Menu $context -Item $Item
   $edit = New-ContextMenuItem -Header 'Edit'
   $edit.Tag = $Item
   $edit.Add_Click({
@@ -7373,7 +7616,7 @@ function Render-Items {
       $script:wrapPanel.Children.Add((New-LauncherCard -Item $item)) | Out-Null
     }
   }
-  $script:itemCountText.Text = "$(@($script:state.items | Where-Object { -not $_.hidden }).Count) shortcuts"
+  $script:itemCountText.Text = (Get-WidgetText '{0} shortcuts') -f (@($script:state.items | Where-Object { -not $_.hidden }).Count.ToString('N0'))
   $script:window.Dispatcher.BeginInvoke(
     [action]{ Update-PageDots },
     [System.Windows.Threading.DispatcherPriority]::Loaded
@@ -7390,25 +7633,19 @@ function Start-HealthCheck {
   foreach ($item in @($script:state.items | Where-Object {
         -not $_.hidden -and (Test-HasHealthCheck -Item $_)
       })) {
-    $request = $null
+    $requests = [System.Collections.Generic.List[object]]::new()
     try {
-      $request = [System.Net.Http.HttpRequestMessage]::new(
-        [System.Net.Http.HttpMethod]::Get,
-        [string]$item.health
-      )
-      $task = $script:httpClient.SendAsync(
-        $request,
-        [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
-      )
+      foreach($url in @(Get-ItemHealthUrls $item)){
+        $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get,$url)
+        $task = $script:httpClient.SendAsync($request,[System.Net.Http.HttpCompletionOption]::ResponseHeadersRead)
+        $requests.Add([pscustomobject]@{request=$request;task=$task})
+      }
       $script:pendingHealth.Add([pscustomobject]@{
           item = $item
-          task = $task
-          request = $request
+          checks = @($requests)
         })
     } catch {
-      if ($null -ne $request) {
-        $request.Dispose()
-      }
+      foreach($entry in $requests){$entry.request.Dispose()}
       $script:healthStates[[string]$item.id] = $false
       if ($script:healthDots.ContainsKey([string]$item.id)) {
         Set-LauncherCardHealthPresentation `
@@ -7428,26 +7665,16 @@ function Complete-HealthCheck {
   $total = 0
   foreach ($pending in @($script:pendingHealth)) {
     $total++
-    $healthy = $false
-    $response = $null
-    try {
-      if ($pending.task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
-        $response = $pending.task.Result
-        $statusCode = [int]$pending.task.Result.StatusCode
-        $healthy = $statusCode -ge 200 -and $statusCode -lt 400
-      }
-    } catch {
-      $healthy = $false
-    } finally {
-      if ($null -ne $response) {
-        $response.Dispose()
-      }
-      if (
-        $pending.PSObject.Properties.Name -contains 'request' -and
-        $null -ne $pending.request
-      ) {
-        $pending.request.Dispose()
-      }
+    $healthy = $pending.checks.Count -gt 0
+    foreach($check in $pending.checks){
+      $response=$null
+      try{
+        if($check.task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion){
+          $response=$check.task.Result; $statusCode=[int]$response.StatusCode
+          $healthy=$healthy -and $statusCode -ge 200 -and $statusCode -lt 400
+        }else{$healthy=$false}
+      }catch{$healthy=$false}
+      finally{if($null -ne $response){$response.Dispose()};$check.request.Dispose()}
     }
     if ($healthy) {
       $online++
@@ -7518,7 +7745,7 @@ function Complete-HealthCheck {
       }
     }
   }
-  $healthSummary = if ($total -gt 0) { "$online / $total online" } else { 'No health checks' }
+  $healthSummary = if ($total -gt 0) { (Get-WidgetText '{0} / {1} online') -f $online.ToString('N0'), $total.ToString('N0') } else { Get-WidgetText 'No health checks' }
   $script:onlineText.Text = $healthSummary
   $script:headerLogo.ToolTip = "Workspace Widget`n$healthSummary"
   [System.Windows.Automation.AutomationProperties]::SetHelpText(
@@ -7526,7 +7753,7 @@ function Complete-HealthCheck {
     $healthSummary
   )
   $script:onlineDot.Fill = Convert-ToBrush $(if ($online -eq $total -and $total -gt 0) { '#FF35DE8F' } else { '#FFFFB454' })
-  $script:lastCheckedText.Text = "Last checked  $(Get-Date -Format 'HH:mm:ss')"
+  $script:lastCheckedText.Text = (Get-WidgetText 'Last checked  {0}') -f (Get-Date -Format 'HH:mm:ss')
   if ($script:pendingOpen.Count -eq 0) {
     $script:startupPollTimer.Stop()
   }
@@ -7715,6 +7942,7 @@ if ($StartupProbe) {
     startupTarget = $StartupProbeTarget
     startupArgs = $StartupProbeArgs
   }
+  Initialize-ServerRegistration -Item $probeItem
 
   $probeProcess = $null
   $healthy = $false
@@ -7752,6 +7980,7 @@ if ($StartupProbe) {
     if ($null -ne $probeProcess) {
       try {
         $probeProcess.Refresh()
+        [void]$probeProcess.WaitForExit(5000)
         $processExitedAfterStop = [bool]$probeProcess.HasExited
       } catch {
         $processExitedAfterStop = $true
@@ -7779,7 +8008,7 @@ if ($StartupProbe) {
     if ($null -ne $probeProcess) {
       try {
         if (-not $probeProcess.HasExited) {
-          Stop-ProcessTree -Process $probeProcess | Out-Null
+          Stop-TrackedLocalServer -Item $probeItem -AllowMissing | Out-Null
         }
       } catch {
         Write-RuntimeLog "Startup probe cleanup failed. $($_.Exception.Message)"
@@ -7943,7 +8172,7 @@ $xaml = @'
         Fill="#B809162B"
         IsHitTestVisible="False" />
 
-      <Grid x:Name="Header" Grid.Row="0" Margin="0,0,0,12">
+      <Grid x:Name="Header" Grid.Row="0" Margin="0,0,0,12" Background="#FF1D2026" MinHeight="38">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="Auto" />
@@ -8518,7 +8747,7 @@ function Update-WidgetOpacity {
   param([switch]$ForceBase)
 
   $opacityEditorOpen = (
-    $script:opacityPanel.Visibility -eq [System.Windows.Visibility]::Visible
+    $null -ne $script:settingsWindow -or $script:opacityPanel.Visibility -eq [System.Windows.Visibility]::Visible
   )
   $useHoverBrightness = (
     -not $ForceBase -and
@@ -8528,9 +8757,9 @@ function Update-WidgetOpacity {
   )
   Set-WidgetOpacity -Value $(if ($useHoverBrightness) { 1.0 } else { $script:baseOpacity })
   $script:hoverOpacityHint.Text = if ($script:hoverBrightness) {
-    'Hover 100%'
+    Get-WidgetText 'Hover 100%'
   } else {
-    'Hover off'
+    Get-WidgetText 'Hover off'
   }
 }
 
@@ -8660,42 +8889,25 @@ function Ensure-WindowVisible {
 function Snap-MinUiToNearestEdge {
   param([double]$AnchorCenter = [double]::NaN)
 
-  if (-not $script:minUiMode) {
+  if ($script:widgetDragging -or -not $script:state.window.edgeSnap) {
     return
   }
 
-  $workArea = Get-WidgetWorkingArea
-  $edgeMargin = 8.0
-  $resolvedCenter = if ([double]::IsNaN($AnchorCenter)) {
-    $script:window.Left + ($script:window.Width / 2.0)
-  } else {
-    $AnchorCenter
-  }
-  $workAreaCenter = $workArea.left + ($workArea.width / 2.0)
-  $targetLeft = if ($resolvedCenter -le $workAreaCenter) {
-    $workArea.left + $edgeMargin
-  } else {
-    $workArea.right - $script:minUiWidth - $edgeMargin
-  }
-  $maximumTop = [math]::Max(
-    $workArea.top + $edgeMargin,
-    $workArea.bottom - $script:window.Height - $edgeMargin
-  )
-  $targetTop = [math]::Max(
-    $workArea.top + $edgeMargin,
-    [math]::Min($maximumTop, $script:window.Top)
-  )
-  if (
-    [math]::Abs($script:window.Left - $targetLeft) -lt 0.5 -and
-    [math]::Abs($script:window.Top - $targetTop) -lt 0.5
-  ) {
-    return
-  }
-
+  # Work entirely in physical pixels. Transforming virtual-screen coordinates
+  # with one display's DPI scale produces incorrect positions on mixed-DPI PCs.
+  $handle=[System.Windows.Interop.WindowInteropHelper]::new($script:window).EnsureHandle()
+  $area=[WorkspaceWidgetNative]::GetPhysicalWorkArea($handle)
+  $bounds=[WorkspaceWidgetNative]::GetPhysicalWindowRect($handle)
+  $width=$bounds.Right-$bounds.Left; $height=$bounds.Bottom-$bounds.Top
+  $leftDistance=[math]::Abs($bounds.Left-$area.Left)
+  $rightDistance=[math]::Abs($area.Right-$bounds.Right)
+  if(-not $script:minUiMode -and [math]::Min($leftDistance,$rightDistance) -gt 28){return}
+  $targetLeft=if($leftDistance -le $rightDistance){$area.Left+8}else{$area.Right-$width-8}
+  $targetTop=[math]::Max($area.Top+8,[math]::Min($area.Bottom-$height-8,$bounds.Top))
   $script:snappingMinUi = $true
   try {
-    $script:window.Left = $targetLeft
-    $script:window.Top = $targetTop
+    [WorkspaceWidgetNative]::SetWindowPos($handle,[IntPtr]::Zero,[int]$targetLeft,[int]$targetTop,0,0,
+      ([WorkspaceWidgetNative]::SWP_NOSIZE -bor [WorkspaceWidgetNative]::SWP_NOZORDER -bor [WorkspaceWidgetNative]::SWP_NOACTIVATE))|Out-Null
   } finally {
     $script:snappingMinUi = $false
   }
@@ -8774,6 +8986,17 @@ function Set-MinUiMode {
 
   $script:applyingUiMode = $true
   $previousAutostartGuard = $script:updatingAutostartCheck
+  $oldBounds = @($script:window.Left, $script:window.Top, $script:window.ActualWidth, $script:window.ActualHeight)
+  $modeWorkArea = Get-WidgetWorkingArea
+  if($null -ne $script:widgetTransition){$script:widgetTransition.Stop()}
+  foreach($property in @('Left','Top','Width','Height')) {
+    $dp=[System.Windows.Window]::("${property}Property")
+    $script:window.BeginAnimation($dp,$null)
+    if($null -ne $script:widgetTransitionTarget){
+      $script:window.SetValue($dp,[double]$script:widgetTransitionTarget[$property])
+    }
+  }
+  $script:widgetTransitionTarget=$null
   $script:updatingAutostartCheck = $true
   try {
     $previouslyMinUi = [bool]$script:minUiMode
@@ -8854,6 +9077,11 @@ function Set-MinUiMode {
       $script:window.Height = [math]::Max(500, [double]$script:state.window.height)
       $script:window.Left = [double]$script:state.window.left
       $script:window.Top = [double]$script:state.window.top
+      if($previouslyMinUi -and -not $Initial) {
+        # Expand on the monitor where the rail is now, not its historic full-mode monitor.
+        $script:window.Left=[math]::Max($modeWorkArea.left,[math]::Min($oldBounds[0],$modeWorkArea.right-$script:window.Width))
+        $script:window.Top=[math]::Max($modeWorkArea.top,[math]::Min($oldBounds[1],$modeWorkArea.bottom-$script:window.Height))
+      }
 
       $script:panelBorder.Padding = [System.Windows.Thickness]::new(20)
       $script:panelBorder.CornerRadius = [System.Windows.CornerRadius]::new(14)
@@ -8879,6 +9107,7 @@ function Set-MinUiMode {
     if ($script:minUiModeCheck.IsChecked -ne $Enabled) {
       $script:minUiModeCheck.IsChecked = $Enabled
     }
+    Set-WidgetLocalizedTree $script:toolbar
     Update-ResponsiveHeader
     $script:opacitySlider.Value = $script:baseOpacity
     $script:opacityValue.Text = '{0:P0}' -f $script:baseOpacity
@@ -8889,6 +9118,9 @@ function Set-MinUiMode {
     if ($script:window.IsLoaded) {
       Render-Items
       Update-WidgetOpacity
+      if (-not $Initial) {
+        Start-WidgetBoundsTransition -FromLeft $oldBounds[0] -FromTop $oldBounds[1] -FromWidth $oldBounds[2] -FromHeight $oldBounds[3]
+      }
       Save-State
       Write-RuntimeLog "MIN UI mode changed. enabled=$Enabled width=$([math]::Round($script:window.Width))"
     }
@@ -9127,7 +9359,7 @@ function Hide-WorkspaceToTray {
   if (-not $script:trayHintShown -and $null -ne $script:trayIcon) {
     $script:trayHintShown = $true
     $script:trayIcon.BalloonTipTitle = 'Workspace is still running'
-    $script:trayIcon.BalloonTipText = 'Right-click the tray icon and choose Exit to stop the process.'
+    $script:trayIcon.BalloonTipText = 'Choose Exit Widget in the tray to close the launcher. Servers keep running; stop them from their cards.'
     $script:trayIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
     $script:trayIcon.ShowBalloonTip(2500)
   }
@@ -9135,7 +9367,7 @@ function Hide-WorkspaceToTray {
 
 function Exit-WorkspaceWidget {
   $script:allowExit = $true
-  Write-RuntimeLog 'Workspace exit requested from tray.'
+  Write-RuntimeLog 'Workspace exit requested from tray. Managed servers keep running and can be recovered on next launch.'
   if ($null -ne $script:trayIcon) {
     $script:trayIcon.Visible = $false
   }
@@ -9239,6 +9471,8 @@ function Set-AutostartUiFromResult {
   } finally {
     $script:updatingAutostartCheck = $false
   }
+  Set-WidgetLocalizedTree $script:autostartStatusText
+  Set-WidgetLocalizedTree $script:startWithWindowsCheck
 }
 
 function ConvertTo-ProcessArgument {
@@ -9400,7 +9634,7 @@ $settingsToolbar = New-ToolbarButton -Glyph '' -Label 'Settings' -AutomationN
 $closeToolbar = New-ToolbarButton -Glyph '' -Label '' -AutomationName 'Hide to tray'
 $script:toolbar.Children.Add($script:minUiModeButton) | Out-Null
 $script:toolbar.Children.Add($addToolbar) | Out-Null
-$script:toolbar.Children.Add($opacityToolbar) | Out-Null
+# Opacity is part of the single Settings surface, not a separate toolbar mode.
 $script:toolbar.Children.Add($settingsToolbar) | Out-Null
 $script:toolbar.Children.Add($closeToolbar) | Out-Null
 
@@ -9411,7 +9645,7 @@ $script:trayIcon.Text = 'Workspace Widget'
 $script:trayIcon.Visible = $true
 $script:trayMenu = [System.Windows.Forms.ContextMenuStrip]::new()
 $trayOpenItem = [System.Windows.Forms.ToolStripMenuItem]::new('Open Workspace')
-$trayExitItem = [System.Windows.Forms.ToolStripMenuItem]::new('Exit')
+$trayExitItem = [System.Windows.Forms.ToolStripMenuItem]::new('Exit Widget (servers keep running)')
 $trayOpenItem.Add_Click({
     $script:window.Dispatcher.BeginInvoke(
       [action]{ Show-WorkspaceFromTray }
@@ -9467,7 +9701,7 @@ $script:minUiSnapTimer = [System.Windows.Threading.DispatcherTimer]::new()
 $script:minUiSnapTimer.Interval = [TimeSpan]::FromMilliseconds(420)
 $script:minUiSnapTimer.Add_Tick({
     $script:minUiSnapTimer.Stop()
-    if ($script:minUiMode) {
+    if (-not $script:widgetDragging -and $script:state.window.edgeSnap) {
       Snap-MinUiToNearestEdge
       Save-State
     }
@@ -9575,7 +9809,7 @@ $script:httpClient.DefaultRequestHeaders.UserAgent.ParseAdd('WorkspaceServiceWid
 $script:healthPollTimer = [System.Windows.Threading.DispatcherTimer]::new()
 $script:healthPollTimer.Interval = [TimeSpan]::FromMilliseconds(100)
 $script:healthPollTimer.Add_Tick({
-    $finished = @($script:pendingHealth | Where-Object { $_.task.IsCompleted }).Count
+    $finished = @($script:pendingHealth | Where-Object { @($_.checks | Where-Object { -not $_.task.IsCompleted }).Count -eq 0 }).Count
     $expired = ((Get-Date) - $script:healthStartedAt).TotalSeconds -gt 4
     if ($finished -eq @($script:pendingHealth).Count -or $expired) {
       $script:healthPollTimer.Stop()
@@ -9649,35 +9883,8 @@ $closeToolbar.Add_Click({ Hide-WorkspaceToTray })
 $script:minUiModeButton.Add_Click({
     Set-MinUiMode -Enabled (-not $script:minUiMode)
   })
-$opacityToolbar.Add_Click({
-    if ($script:minUiMode) {
-      Set-MinUiMode -Enabled $false
-    }
-    $script:opacityPanel.Visibility = if ($script:opacityPanel.Visibility -eq [System.Windows.Visibility]::Visible) {
-      [System.Windows.Visibility]::Collapsed
-    } else {
-      [System.Windows.Visibility]::Visible
-    }
-    $script:settingsPanel.Visibility = [System.Windows.Visibility]::Collapsed
-    Update-WidgetOpacity
-  })
 $settingsToolbar.Add_Click({
-    if ($script:minUiMode) {
-      Set-MinUiMode -Enabled $false
-    }
-    $script:settingsPanel.Visibility = if ($script:settingsPanel.Visibility -eq [System.Windows.Visibility]::Visible) {
-      [System.Windows.Visibility]::Collapsed
-    } else {
-      [System.Windows.Visibility]::Visible
-    }
-    if (
-      $script:settingsPanel.Visibility -eq [System.Windows.Visibility]::Visible -and
-      -not $script:autostartBusy
-    ) {
-      Start-AutostartOperation -Action Get
-    }
-    $script:opacityPanel.Visibility = [System.Windows.Visibility]::Collapsed
-    Update-WidgetOpacity
+    Show-WidgetSettings
   })
 $script:appearanceButton.Add_Click({
     Show-AppearanceDialog | Out-Null
@@ -9794,15 +10001,17 @@ $script:resizeHandle.Add_PreviewMouseLeftButtonDown({ Start-BottomRightResize -E
 $script:header.Add_MouseLeftButtonDown({
     param($sender, $eventArgs)
     if ($eventArgs.ChangedButton -eq [System.Windows.Input.MouseButton]::Left -and
-        $eventArgs.OriginalSource -isnot [System.Windows.Controls.Button]) {
+        -not (Test-WidgetInteractiveOrigin $eventArgs.OriginalSource)) {
       try {
+        $script:widgetDragging = $true
+        $script:minUiSnapTimer.Stop()
         $script:window.DragMove()
-        if ($script:minUiMode) {
-          Snap-MinUiToNearestEdge
-          Save-State
-        }
       } catch {
         # DragMove can throw when the mouse is released between event dispatches.
+      } finally {
+        $script:widgetDragging = $false
+        Snap-MinUiToNearestEdge
+        Save-State | Out-Null
       }
     }
   })
@@ -9815,7 +10024,7 @@ $script:window.Add_MouseLeave({
   })
 $script:window.Add_LocationChanged({
     if (
-      $script:minUiMode -and
+      -not $script:widgetDragging -and $script:state.window.edgeSnap -and
       -not $script:applyingUiMode -and
       -not $script:snappingMinUi
     ) {
@@ -9862,6 +10071,10 @@ $script:window.Add_PreviewMouseWheel({
     )
     $script:scrollAnimationFrames = 0
     $script:scrollAnimationActive = $distance -gt 0.5
+    if(-not (Test-WidgetMotionEnabled)){
+      $script:scrollAnimationActive=$false
+      $script:scrollViewer.ScrollToVerticalOffset($script:scrollTarget)
+    }
     $eventArgs.Handled = $true
   })
 
@@ -9936,7 +10149,7 @@ $script:window.Add_Deactivated({
   })
 
 $script:window.Add_Loaded({
-    Render-Items
+    Update-WidgetLanguage
     Save-State
     $script:scrollTarget = $script:scrollViewer.VerticalOffset
     Update-PageDots
@@ -9958,7 +10171,7 @@ $script:window.Add_Loaded({
       $fadeIn.Add_Completed({
           Update-WidgetOpacity
         })
-      $script:window.BeginAnimation([System.Windows.Window]::OpacityProperty, $fadeIn)
+      if(Test-WidgetMotionEnabled){$script:window.BeginAnimation([System.Windows.Window]::OpacityProperty, $fadeIn)}
     }
     if (-not [string]::IsNullOrWhiteSpace($CapturePath)) {
       $script:captureTimer = [System.Windows.Threading.DispatcherTimer]::new()

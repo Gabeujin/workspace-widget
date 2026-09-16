@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title">
+  <title id="title">Database</title>
+  <ellipse cx="12" cy="6" rx="7.5" ry="3" />
+  <path d="M4.5 6v5.5c0 1.9 3.35 3.5 7.5 3.5s7.5-1.6 7.5-3.5V6" />
+  <path d="M4.5 11.5V17c0 1.9 3.35 3.5 7.5 3.5s7.5-1.6 7.5-3.5v-5.5" />
+</svg>

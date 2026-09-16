@@ -22,6 +22,16 @@ files remain valid because `iconPreset` is an optional additive field.
 
 | ID | Intended meaning | Do not use it to mean |
 | --- | --- | --- |
+| `folder` | Folder or file collection | Generic workspace |
+| `code` | Source code or developer project | Terminal or shell tool |
+| `terminal` | Command line or shell tool | Project file |
+| `database` | Database or structured store | Generic data or reporting |
+| `document` | Document, note, or report | Image asset |
+| `image` | Image or visual asset | Video playback destination |
+| `video` | Video or playback destination | Static image asset |
+| `tools` | Utilities, maintenance, or configuration tools | App-wide preferences |
+| `calendar` | Schedule, date, or recurring plan | Clock or alarm |
+| `settings` | Preferences or application settings | Data or reporting |
 | `launch` | Open an app, file, folder, or URL | Running or healthy |
 | `service` | Local or remote service | Upload or download |
 | `people` | Users, access, collaboration | Notification count |

@@ -64,6 +64,7 @@ function Get-WorkspaceWidgetProcess {
   $nativeProcesses = @(
     Get-CimInstance Win32_Process -Filter "Name='WorkspaceWidget.exe'" -ErrorAction SilentlyContinue |
       Where-Object {
+        [string]$_.CommandLine -notmatch '(?i)\s--service-supervisor\s' -and
         -not [string]::IsNullOrWhiteSpace($nativeHost) -and
         -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) -and
         [string]::Equals(

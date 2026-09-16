@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -65,13 +65,33 @@ jobs:
         run: |
           .\scripts\Test-OfficialSecurityBaseline.ps1
 
+      - name: Verify registration, localization and motion regressions
+        shell: powershell
+        run: |
+          foreach ($test in @(
+            'Test-WorkspaceWidgetExperience.ps1',
+            'Test-WorkspaceWidgetRegistrationV5.ps1',
+            'Test-WorkspaceWidgetLanguageContrast.ps1',
+            'Test-WorkspaceWidgetComboBox.ps1',
+            'Test-WorkspaceWidgetMotion.ps1',
+            'Test-WorkspaceWidgetStopFeedback.ps1',
+            'Test-WorkspaceWidgetMenuLocalization.ps1',
+            'Test-WorkspaceWidgetUpgradeProcessGate.ps1',
+            'Test-WorkspaceWidgetRepairSafety.ps1',
+            'Test-WorkspaceWidgetStateV5Migration.ps1',
+            'Test-WorkspaceWidgetProductionControlV5.ps1'
+          )) {
+            powershell.exe -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File (Join-Path '.\scripts' $test)
+            if ($LASTEXITCODE -ne 0) { throw "Modernization regression failed: $test" }
+          }
+
       - name: Build allowlisted development stage
         shell: powershell
         run: |
           $outputRoot = Join-Path $env:RUNNER_TEMP 'workspace-widget-build'
           $buildOutput = @(
             .\scripts\Build-WorkspaceWidget.ps1 `
-            -Version 0.1.0 `
+            -Version 0.2.0 `
             -OutputRoot $outputRoot `
             -SkipInstaller
           )
@@ -80,9 +100,15 @@ jobs:
           if (-not [bool]$buildResult.success) {
             throw 'The development stage build did not report success.'
           }
+          $stageManifest = Get-Content -LiteralPath (
+            Join-Path $outputRoot 'WorkspaceWidget-0.2.0-manifest.json'
+          ) -Raw -Encoding UTF8 | ConvertFrom-Json
+          if (-not [bool]$stageManifest.toolchain.deterministic) {
+            throw 'CI requires the deterministic Roslyn compiler used by Store builds.'
+          }
           $verificationOutput = @(
             .\scripts\Test-WorkspaceWidgetRelease.ps1 `
-            -Version 0.1.0 `
+            -Version 0.2.0 `
             -OutputRoot $outputRoot
           )
           $verificationResult = (
@@ -125,11 +151,39 @@ jobs:
             $probeExit -ne 0 -or
             -not [bool]$startupProbe.success -or
             -not [bool]$startupProbe.expectedTokenMatched -or
-            [string]$startupProbe.bundledNodeVersion -ne 'v24.19.0' -or
+            [string]$startupProbe.bundledNodeVersion -ne 'v24.21.0' -or
             $null -ne $probeProcessLeft
           ) {
             $startupProbe | ConvertTo-Json -Depth 8
             throw 'The package-local Node startup/health/cleanup probe failed.'
           }
           $verificationResult | ConvertTo-Json -Depth 8
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\Test-WorkspaceWidgetManagedLifecycle.ps1 `
+            -HostPath (Join-Path $buildResult.stageRoot 'WorkspaceWidget.exe') `
+            -NodePath (Join-Path $buildResult.stageRoot 'runtime\node\node.exe')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Managed server ownership and shutdown verification failed.'
+          }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\Test-WorkspaceWidgetV2Lifecycle.ps1 `
+            -HostPath (Join-Path $buildResult.stageRoot 'WorkspaceWidget.exe') `
+            -PackageHostPath (Join-Path $buildResult.stageRoot 'WorkspaceWidget.exe') `
+            -NodePath (Join-Path $buildResult.stageRoot 'runtime\node\node.exe')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'V2 multi-health and explicit-stop lifecycle verification failed.'
+          }
+          powershell.exe -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File .\scripts\Test-WorkspaceWidgetLifecycleUi.ps1 `
+            -HostPath (Join-Path $buildResult.stageRoot 'WorkspaceWidget.exe')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Managed server lifecycle UI verification failed.'
+          }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\Test-WorkspaceWidgetStartupIntegration.ps1 `
+            -StageRoot $buildResult.stageRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Direct and package-runner startup integration failed.'
+          }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\Test-WorkspaceWidgetManagedLaunchBoundary.ps1 `
+            -HostPath (Join-Path $buildResult.stageRoot 'WorkspaceWidget.exe')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Managed launch command/path boundary verification failed.'
+          }
           $global:LASTEXITCODE = 0

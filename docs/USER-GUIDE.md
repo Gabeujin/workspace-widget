@@ -2,10 +2,10 @@
 
 Workspace Widget is a per-user desktop launcher for Windows 11 x64. It opens
 local applications, files, folders, and web apps from a movable WPF widget. It
-can also monitor optional health endpoints and start a configured local Node.js
-service before opening its URL.
+can also monitor optional health endpoints and start a configured local server
+before opening its URL.
 
-This guide describes the intended 0.1.0 Microsoft Store experience and the
+This guide describes the 0.2.0 candidate and intended Microsoft Store experience and the
 feature behavior verified on the current development build. No certified Store
 listing is available yet. Packaged startup, update, uninstall, and reinstall
 behavior remains subject to the release gates in
@@ -55,17 +55,28 @@ Select **Add** or **Add shortcut**, then configure:
 - **Name**: the label shown in the full layout.
 - **URL or local path**: an HTTP/HTTPS URL or an existing application, file,
   folder, `.lnk`, or `.url` file.
-- **Health URL**: an optional HTTP/HTTPS endpoint.
-- **Node start target**: an optional `.js`, `.mjs`, or `.cjs` entry file, or a
-  directory that contains `package.json`.
+- **Shortcut type**: choose an ordinary shortcut or a local server. Ordinary
+  shortcuts do not show server controls. Local servers require a start target,
+  a stop target, and at least one health check.
+- **Health checks**: add or remove rows for the local server's loopback
+  HTTP/HTTPS endpoints. The current limit is 16 distinct endpoints per server;
+  all must respond successfully for the card to be healthy.
+- **Node start target**: a `.js`, `.mjs`, `.cjs`, or `.ps1` entry file, or a
+  directory that contains `package.json`. Only configure trusted local code.
 - **Start script / arguments**: a package script name for a project directory,
   or arguments for a JavaScript entry file.
+- **Stop target / arguments**: a trusted local JavaScript or PowerShell stop
+  helper and its arguments. Migrated server entries receive the bundled
+  managed-stop helper; it requests shutdown only for verified Widget-owned work.
+- **Built-in icon**: choose from 18 bundled semantic icons.
 - **Custom icon image**: a local image, a Windows clipboard image selected with
   **Paste image**, or a public HTTPS image URL. Clipboard and HTTPS icons are
   previewed and must be visually confirmed before Save is enabled. Raster and
   clipboard icons are stored as transparent 256 x 256 local card assets so an
   expiring source URL does not later blank the shortcut. Static SVG URLs are
   supported.
+- Use **Browse...** beside an image or hover-media path to select a local file
+  instead of typing its path.
 - **Hover media**: an optional trusted local source or public HTTPS media
   source. Remote raster images are bounded, validated, and cached before
   decoding. See
@@ -106,10 +117,10 @@ This has several consequences:
 Do not place passwords, tokens, or other secrets in shortcut arguments. The
 arguments are stored as plain text in the current user's state file.
 
-### Health checks and local Node.js startup
+### Health checks and local server startup
 
-When a Health URL is present, the widget polls it every 30 seconds and shows the
-result on the card.
+Local server entries poll their configured health endpoints and show the
+combined result on the card. Ordinary shortcuts do not poll health endpoints.
 
 When the user opens an offline item that also has a Node start target, the
 widget:
@@ -117,26 +128,21 @@ widget:
 1. resolves a Node.js runtime and a pnpm or npm package runner;
 2. starts the configured entry file or package script with the current user's
    permissions;
-3. waits up to 30 seconds for the health endpoint; and
+3. waits for the configured health checks within the startup deadline; and
 4. opens the target URL when it becomes healthy.
 
-For a health-checked shortcut, the card's right-click menu reflects its current
-state:
+Every local server card always includes separate **Start** and **Stop** actions.
+Start checks the existing instance before launching and does not open its URL.
+Stop first verifies ownership, runs the registered stop helper, and checks that
+the owned process group and health endpoints stopped. The graceful-stop budget
+is 40 seconds. A remaining verified process may be force-stopped only after
+confirmation. A missing or foreign process is not permission to terminate it.
+Ordinary shortcuts never show these server actions.
 
-- **Restart server** runs the configured Node start target while the health
-  endpoint is offline, waits for recovery, and does not open the target URL.
-- **Check and restart server** first resolves an as-yet-unknown health state and
-  starts only when the endpoint is unavailable.
-- **Server is online** is disabled so an ordinary right-click cannot interrupt a
-  healthy service.
-- **Configure server restart...** opens the shortcut editor when a Health URL is
-  present but no Node start target has been configured.
-
-When possible, recovery stops only a still-running process that this widget
-instance originally started for the same shortcut. It does not terminate an
-unrelated process merely because it happens to use the configured port. If that
-tracked process tree is still alive, the widget asks before force-stopping it
-and warns that unsaved server work can be lost.
+Recovery verifies the supervisor and saved launch identity before stopping a
+server. A surviving supervisor can be recovered after the Widget reopens. A
+foreign listener never grants stop authority. Force-stop requires confirmation
+because unsaved server work can be lost. See [Server lifecycle](SERVER-LIFECYCLE.md).
 
 Installed and Store builds enforce their package-local runtime and ignore
 development overrides and system `PATH`. An unpackaged source checkout uses:
@@ -157,8 +163,7 @@ available to the signed-in Windows user.
 
 Right-click a card to use the available management actions:
 
-- **Restart server** or **Configure server restart...** for health-checked local
-  services
+- **Start** and **Stop** for local servers only
 - **Edit**
 - **Move earlier**
 - **Move later**
@@ -179,6 +184,10 @@ Drag the header to move the widget. Resize it from the bottom-right resize
 handle. Position, size, layout mode, opacity, appearance, and registered items
 are saved automatically.
 
+Dragging is not constrained to the initial display. **Settings > Snap to screen
+edges** controls whether a completed drag near the left or right edge snaps to
+that edge. Buttons and other interactive header controls do not start a drag.
+
 Use **Settings > Reset size** if the full layout becomes inconvenient.
 
 The application attempts to recover a saved window that is no longer inside an
@@ -186,12 +195,19 @@ active display work area, such as after disconnecting a monitor.
 
 ### Opacity and hover brightness
 
-Select **Opacity** to choose a resting window opacity from 35 to 100 percent.
+Open **Settings** to choose a resting window opacity from 35 to 100 percent.
 When **Settings > Hover brightness** is enabled, moving the pointer over the
 widget temporarily raises it to full opacity.
 
 Background-media opacity is a separate setting. It does not change the opacity
 of the whole window.
+
+### Language and motion
+
+The unified Settings window also contains **Language** (Korean or English) and
+**Reduce motion**. Changing language updates the existing widget controls.
+Reduced motion suppresses transitions; Windows animation preferences are also
+respected. Settings use an opaque, independently sized window in both layouts.
 
 ### Always on top
 
@@ -231,7 +247,7 @@ MIN UI:
 - hides secondary labels and controls;
 - uses the saved compact-mode opacity;
 - suppresses hover-media previews; and
-- snaps to the nearest left or right screen edge after it is dragged.
+- supports optional edge snapping when released near a screen edge.
 
 Use the compact-mode button again to restore the saved full layout.
 
@@ -246,8 +262,9 @@ To restore it:
 - double-click the notification-area icon; or
 - right-click the notification-area icon and select **Open Workspace**.
 
-To stop it completely, right-click the notification-area icon and select
-**Exit**.
+To close the launcher, right-click the notification-area icon and select
+**Exit Widget (servers keep running)**. To stop a managed server, use its card's
+**Stop** first. Reopening the Widget reconnects to verified supervisors.
 
 ## Start with Windows
 
@@ -294,9 +311,9 @@ The runtime also uses:
 ```
 
 State writes are performed through a temporary file and replace operation. If
-the primary JSON file cannot be read, the application tries
-`state.json.previous` before using packaged defaults. Future unknown state
-schemas are rejected instead of silently rewritten. A state document is capped
+an existing primary JSON file is invalid, the application refuses to overwrite
+it; restore a verified backup before reopening. Future unknown state
+schemas are also rejected instead of silently rewritten. A state document is capped
 at 4 MB and 250 shortcuts; `runtime.log` stops growing at 4 MB.
 
 Managed `IconCache` and `MediaCache` directories each enforce a 128 MB write

@@ -125,7 +125,7 @@ Microsoft Store가 인증 후 다시 서명한 최종 패키지만 공개 배포
    만들거나 Store 인증 후 Microsoft가 서명한 패키지를 사용합니다.
 3. 지원되는 Windows 11 x64 표준 사용자 환경에 설치합니다.
 4. WebView2 Evergreen Runtime이 설치되어 있고 현재 지원되는 안정 채널인지
-   확인합니다. SDK `1.0.4129.50`에서 앱이 사용하는 API와 호환되는 Runtime으로
+   확인합니다. SDK `1.0.4191.47`에서 앱이 사용하는 API와 호환되는 Runtime으로
    실행하고, 런타임이 없거나 업데이트에 실패했을 때 안내 UX도 확인합니다.
 5. 첫 실행, 바로가기, 트레이, Always on top, MIN UI, WebView2 미디어, Node 시작,
    시작 앱 설정, 업데이트, 제거, 재설치를 검증합니다.

@@ -172,7 +172,7 @@ $checks = [ordered]@{
       [string]$baseline.components.webView2.sdkVersion -and
     [string]$securityReview.webView2.latestStableSdkVersionObserved -eq
       [string]$baseline.components.webView2.sdkVersion -and
-    [string]$securityReview.webView2.sdkCompatibilityRuntimeObserved -eq '151.0.4129.50'
+    [string]$securityReview.webView2.sdkCompatibilityRuntimeObserved -eq '152.0.4191.53'
   emergencyReviewPolicy = @($baseline.releasePolicy.emergencyReviewTriggers).Count -ge 3 -and
     @($baseline.releasePolicy.emergencyReviewTriggers | Where-Object {
         [string]::IsNullOrWhiteSpace([string]$_)
@@ -205,7 +205,8 @@ $checks = [ordered]@{
   startupTrustBoundary = $app -match 'function Resolve-NodeStartupConfiguration' -and
     $app -match 'Network and device paths are not supported' -and
     $app -match 'Automatic Node startup requires a loopback health URL' -and
-    $app -match 'Stop-ProcessTree' -and
+    $app -match 'ManagedServiceClient\]::StopV2Async' -and
+    $app -notmatch 'taskkill\.exe' -and
     $app -match 'Force-stop local server'
   startupTrustBoundaryBehavior = $validStartupProbeExit -eq 0 -and
     [bool]$validStartupProbe.success -and
@@ -222,7 +223,7 @@ $checks = [ordered]@{
     $app -match '\$script:maximumShortcutCount = 250' -and
     $app -match '\$script:maximumManagedCacheBytes = 128MB' -and
     $app -match 'function Get-ValidatedLocalMediaInfo'
-  stateSchemaFailClosed = $app -match '\[int\]\$candidateState\.schemaVersion -gt 4' -and
+  stateSchemaFailClosed = $app -match '\[int\]\$candidateState\.schemaVersion -gt 5' -and
     $app -match 'throw \[System\.NotSupportedException\]::new' -and
     $app -match 'State read stopped to preserve a newer schema'
   webView2Isolation = $app -match 'AreHostObjectsAllowed = \$false' -and

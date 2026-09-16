@@ -11,7 +11,7 @@ Workspace Widget is a movable Windows 11 launcher for local web apps,
 applications, files, folders, and URLs. It runs as the branded
 `WorkspaceWidget.exe`; no console or `wscript.exe` window is used.
 
-Version `0.1.4` is a Windows-only release candidate. Its supported public
+Version `0.2.0` is a Windows-only release candidate. Its supported public
 distribution channel is a Microsoft Store MSIX package. Local development
 packages are unsigned and must never be presented as public downloads.
 
@@ -26,11 +26,13 @@ packages are unsigned and must never be presented as public downloads.
   entry never deletes the original app, file, folder, or shortcut.
 - Show `Port ####` for URLs with an explicit port and poll an optional health
   endpoint every 30 seconds.
-- Start a trusted offline Node project or JavaScript entry, wait for its health
-  endpoint, and open it when ready.
+- Start a trusted local server from a Node project, JavaScript entry, or
+  PowerShell entry, wait for its configured health checks, and open it when
+  ready.
 - Treat every configured local server through the same product-agnostic
-  `startup target + arguments + working directory + health URL` contract.
-- Use native Windows icons or eight original MIT-licensed semantic line icons,
+  `startup target + arguments + working directory + ordered loopback health
+  checks + stop target` contract.
+- Use native Windows icons or 18 original MIT-licensed semantic line icons,
   smooth scrolling, free move/resize, opacity and hover brightness, **Always on
   top**, and a 96 px edge-snapped **MIN UI** mode.
 - Choose Midnight, Neon, Sakura, Monochrome, or fully custom colors.
@@ -39,7 +41,7 @@ packages are unsigned and must never be presented as public downloads.
   media; YouTube hover playback uses the privacy-enhanced embed domain through
   WebView2. Direct remote video streams are rejected.
 - Hide to the notification area, reopen from the tray or desktop shortcut, and
-  exit from tray right-click → **Exit**.
+  exit from tray right-click → **Exit Widget (servers keep running)**.
 - Optionally return behind ordinary apps when inactive with **Keep on desktop
   layer**. An explicit shortcut or tray open always presents the window.
 - Control the package-declared Windows startup task from **Start with Windows**.
@@ -83,31 +85,31 @@ Center account, registration, and submission steps are in
 Open **Add shortcut** and enter:
 
 - **URL or local path**, for example `http://127.0.0.1:43100/`;
-- optional **Health URL**, such as `http://127.0.0.1:43100/health`;
-- optional **Node start target**, either `.js`, `.mjs`, `.cjs`, or a directory
-  with `package.json`;
-- optional package script or entry-file arguments.
+- select **Local server**, then add one or more loopback **Health checks**, such
+  as `http://127.0.0.1:43100/health`;
+- a trusted **Start script**: `.js`, `.mjs`, `.cjs`, or `.ps1`, or a directory
+  with `package.json`, plus its arguments or package-script name; and
+- a trusted JavaScript or PowerShell **Stop script** and its arguments.
 
 If health is offline, clicking the card starts the configured target, waits up
 to 30 seconds, and opens the URL after health succeeds. Only configure code and
 endpoints you trust; they run or receive requests with the current user's
 permissions.
 
-Right-click a health-checked card to use **Restart server** while it is offline.
-The action runs only the explicitly configured Node start target, waits for the
-health endpoint, and leaves the target URL closed. After this Widget instance
-starts the process, the same menu becomes **Stop server...** while that tracked
-process tree is live. Stop requires explicit confirmation and warns that
-unsaved server work can be lost. If no start target is saved, the menu shows
-**Configure server restart...** and opens the shortcut editor. An online server
-that this Widget instance did not start remains visible as online but cannot be
-stopped by the Widget.
+Each local-server card has separate **Start** and **Stop** actions. **Start**
+checks the existing instance and does not open the target URL. **Stop** first
+verifies ownership, requests graceful shutdown, and verifies that the owned
+process group and health checks stopped. After 40 seconds, a remaining verified
+process can be force-stopped only after confirmation. An online server without
+verified launch ownership cannot be stopped by the Widget. Ownership of a
+surviving supervisor can be recovered after closing and reopening the Widget.
 
 Workspace Widget does not reserve product names, IDs, ports, source layouts, or
 database contracts. A server card is restartable only from its saved generic
 fields. The widget never discovers or terminates an unrelated process by name
-or port; it can stop only a process tree started and tracked by the current
-widget instance, with explicit confirmation.
+or port. A hidden supervisor retains each launched process group and records
+ownership and shutdown receipts. Tray Exit leaves servers running; use the
+card's Stop command to stop them. See [Server lifecycle](docs/SERVER-LIFECYCLE.md).
 
 Store and installed builds use only their checksum-pinned package-local Node.js
 and npm. They ignore `WORKSPACE_WIDGET_NODE`, `WORKSPACE_WIDGET_PNPM`,
@@ -161,11 +163,11 @@ step that requires the exact Partner Center Product identity:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
-  -Version 0.1.4 `
+  -Version 0.2.0 `
   -PackageVersion 1.0.0.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
-  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.1.4 `
+  -OutputRoot C:\WorkspaceWidgetStoreBuild\0.2.0 `
   -StoreSubmission
 ```
 
@@ -178,7 +180,7 @@ Do not sideload or distribute the unsigned producer file.
 
 `Version` is the application release label. `PackageVersion` is the four-part
 Microsoft Store package identity version. Store packages require a nonzero first
-segment and reserve the fourth segment as `0`, so the `0.1.4` release candidate
+segment and reserve the fourth segment as `0`, so the `0.2.0` release candidate
 uses package version `1.0.0.0`.
 
 ## Verify

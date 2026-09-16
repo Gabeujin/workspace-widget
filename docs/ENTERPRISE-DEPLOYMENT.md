@@ -46,7 +46,7 @@ The build script produces:
 
 The staged package contains the x64 native host, WPF application script, clean
 public default state, icons, autostart helper, legal notices, pinned WebView2
-SDK files, and the official Node.js 24.19.0 LTS Windows x64 distribution. The
+SDK files, and the official Node.js 24.21.0 LTS Windows x64 distribution. The
 dependency restore scripts accept only pinned sources and verify exact SHA-256
 values before extracting files.
 
@@ -101,7 +101,8 @@ $version = if ($installed) {
 }
 ```
 
-The current host file version is `0.1.0.0`. The build `-Version` argument
+For the historical `0.1.0` example above, the host file version is `0.1.0.0`.
+The build `-Version` argument
 rewrites assembly version attributes in a generated C# source copy and uses the
 same value for installer and manifest metadata. It does not modify the checked-in
 native source.
@@ -129,7 +130,7 @@ For a controlled upgrade:
 5. start the widget or allow its owned scheduled task to start it; and
 6. inspect `host.log` and `runtime.log`.
 
-The application reads current schema 4 state and migrates supported older
+The application reads current schema 5 state and migrates supported older
 state fields at runtime. It writes state atomically and can read
 `state.json.previous` if the primary JSON file is invalid.
 
@@ -154,7 +155,7 @@ The JSON can contain:
 - local application and file-system paths;
 - URLs and health endpoints;
 - Shell Link arguments and working directories;
-- local Node.js entry points and package script names;
+- local Node.js and PowerShell entry points and package script names;
 - media file paths and remote media URLs; and
 - layout and appearance preferences.
 
@@ -234,7 +235,7 @@ YouTube playback requires the Microsoft Edge WebView2 Evergreen Runtime.
 Workspace Widget ships SDK assemblies and a native loader but does not install
 or silently download the runtime.
 
-Node.js 24.19.0 LTS and npm are included under `runtime\node`; pnpm is not.
+Node.js 24.21.0 LTS and npm are included under `runtime\node`; pnpm is not.
 The official Node.js archive is checksum-pinned and its full license material
 is retained. If local service startup is approved, restrict shortcut
 configuration to trusted projects. Workspace Widget does not install project
@@ -249,8 +250,11 @@ user's permissions.
 - Restrict configuration to trusted local paths and network origins.
 - Installed packages use only their package-local checksum-pinned Node runtime;
   environment and system `PATH` overrides are development-only.
-- Automatic Node startup accepts only local drive-rooted targets and loopback
-  health URLs. A force-stop of a widget-owned process tree requires confirmation.
+- Automatic local-server startup accepts only local drive-rooted targets and
+  loopback health URLs. Stop first requests cooperative shutdown; a force-stop after
+  timeout requires fresh ownership verification and user confirmation. Tray Exit
+  leaves servers running. Preserve lifecycle evidence and release folders while
+  their supervisors are alive.
 - Run `scripts\Test-OfficialSecurityBaseline.ps1`; a review older than 30 days
   fails closed until official Node.js, WebView2, Windows, and Store sources are
   reviewed again.

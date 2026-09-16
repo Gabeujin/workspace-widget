@@ -85,11 +85,12 @@ It does not run `npm install`, resolve missing dependencies, or execute a
 package script merely because a project is discovered. Package scripts still
 run with the signed-in user's permissions and remain inside the user's trust
 boundary. Restart and Stop never kill a process merely because it owns the
-configured port. Stop is enabled only while the current Widget instance owns a
-live process handle that it created, and it requires explicit confirmation
-before force-stopping that process tree. An online but unowned server remains
-non-stoppable, so stale health state or a reused port cannot target an unrelated
-process.
+configured port. Stop requires a verified supervisor, protected control channel,
+and persisted launch identity. The supervisor retains a Job Object across UI
+restarts, requests cooperative shutdown first, and requires explicit confirmation
+after timeout before terminating that verified job. Unowned, mismatched, or
+unverifiable instances are refused. Tray Exit never requests a server stop.
+See [Server lifecycle](docs/SERVER-LIFECYCLE.md) for recovery and limitations.
 
 The local-server lifecycle is product-agnostic. It does not reserve application
 IDs, ports, source layouts, API versions, database contracts, or product-owned

@@ -25,7 +25,17 @@ $expectedIds = @(
   'web',
   'data',
   'automation',
-  'lab'
+  'lab',
+  'folder',
+  'code',
+  'terminal',
+  'database',
+  'document',
+  'image',
+  'video',
+  'tools',
+  'calendar',
+  'settings'
 )
 $blockingFailures = [System.Collections.Generic.List[string]]::new()
 $checks = [ordered]@{}
@@ -106,7 +116,7 @@ $checks.themeAwareForeground = (
 )
 $checks.healthAccessibility = (
   $appContent -match 'function Set-LauncherCardHealthPresentation' -and
-  $appContent -match 'Status: \$statusText' -and
+  $appContent -match "Get-WidgetText 'Open \{0\}\. Status: \{1\}\.'" -and
   $appContent -match 'AutomationLiveSetting\]::Polite' -and
   $appContent -match 'AutomationEvents\]::LiveRegionChanged'
 )

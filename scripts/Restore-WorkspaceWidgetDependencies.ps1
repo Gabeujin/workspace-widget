@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [string]$DependencyRoot,
-  [string]$WebView2Version = '1.0.4129.50'
+  [string]$WebView2Version = '1.0.4191.47'
 )
 
 Set-StrictMode -Version Latest
@@ -23,9 +23,9 @@ if ([string]::IsNullOrWhiteSpace($DependencyRoot)) {
 $DependencyRoot = [System.IO.Path]::GetFullPath($DependencyRoot)
 
 $supported = @{
-  '1.0.4129.50' = @{
-    sha256 = 'D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2'
-    uri = 'https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4129.50'
+  '1.0.4191.47' = @{
+    sha256 = 'F492BBF547D0DA329553B6727435B677579B1E9F91CC9E4A1AD029366D5F23D0'
+    uri = 'https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4191.47'
   }
 }
 if (-not $supported.ContainsKey($WebView2Version)) {

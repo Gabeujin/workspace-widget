@@ -5,17 +5,17 @@
   "platform": "Windows 11 x64",
   "components": {
     "node": {
-      "version": "24.19.0",
-      "archive": "node-v24.19.0-win-x64.zip",
-      "sha256": "57F71AB3652E797D84ACDDC79C81CC9FF1C6DDB2A1974CDB83F00FEE9BFF4C73",
-      "source": "https://nodejs.org/download/release/v24.19.0/node-v24.19.0-win-x64.zip",
-      "releaseNotes": "https://nodejs.org/en/blog/release/v24.19.0",
+      "version": "24.21.0",
+      "archive": "node-v24.21.0-win-x64.zip",
+      "sha256": "158F7685B44DE51F6C0DF1D153526CBCD3E1BC739A8DFC607721CEF75DE9E541",
+      "source": "https://nodejs.org/download/release/v24.21.0/node-v24.21.0-win-x64.zip",
+      "releaseNotes": "https://nodejs.org/en/blog/release/v24.21.0",
       "securityAdvisories": "https://nodejs.org/en/blog/vulnerability/"
     },
     "webView2": {
-      "sdkVersion": "1.0.4129.50",
-      "packageSha256": "D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2",
-      "source": "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4129.50",
+      "sdkVersion": "1.0.4191.47",
+      "packageSha256": "F492BBF547D0DA329553B6727435B677579B1E9F91CC9E4A1AD029366D5F23D0",
+      "source": "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4191.47",
       "releaseNotes": "https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/sdk/",
       "runtimeReleaseNotes": "https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/runtime/",
       "servicingModel": "Evergreen Runtime is serviced independently from the pinned SDK bridge."

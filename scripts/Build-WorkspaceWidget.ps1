@@ -2,7 +2,7 @@
 param(
   [string]$ProjectRoot,
   [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '0.1.4',
+  [string]$Version = '0.2.0',
   [string]$OutputRoot,
   [string]$CertificateThumbprint,
   [string]$TimestampUrl,
@@ -69,7 +69,27 @@ if (-not [string]::IsNullOrWhiteSpace($CompilerPath)) {
   $compiler = [System.IO.Path]::GetFullPath($CompilerPath)
 } else {
   $compilerCandidates = [System.Collections.Generic.List[string]]::new()
+  $vswhereCandidates = @(
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'),
+    (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe')
+  ) | Where-Object {
+    -not [string]::IsNullOrWhiteSpace($_) -and
+    (Test-Path -LiteralPath $_ -PathType Leaf)
+  }
+  foreach ($vswhere in $vswhereCandidates) {
+    $installPath = (& $vswhere -latest -products '*' -property installationPath 2>$null | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($installPath)) {
+      continue
+    }
+    $candidate = Join-Path $installPath.Trim() 'MSBuild\Current\Bin\Roslyn\csc.exe'
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      $compilerCandidates.Add($candidate)
+      break
+    }
+  }
   foreach ($visualStudioRoot in @(
+      (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\18'),
+      (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\18'),
       (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022'),
       (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2022')
     )) {
@@ -139,6 +159,7 @@ if ([string]::IsNullOrWhiteSpace($SystemRuntimeFacadePath)) {
     Select-Object -First 1 -ExpandProperty FullName
 }
 $hostSource = Join-Path $ProjectRoot 'native\WorkspaceWidgetHost.cs'
+$supervisorSource = Join-Path $ProjectRoot 'native\ManagedServiceSupervisor.cs'
 $iconPath = Join-Path $ProjectRoot 'assets\workspace-widget.ico'
 $buildRoot = Join-Path $OutputRoot 'build'
 $stageRoot = Join-Path $OutputRoot 'staging\WorkspaceWidget'
@@ -215,6 +236,7 @@ foreach ($required in @(
     $windowsRuntimeAssembly,
     $SystemRuntimeFacadePath,
     $hostSource,
+    $supervisorSource,
     $iconPath
   )) {
   if ([string]::IsNullOrWhiteSpace($required) -or -not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -225,7 +247,7 @@ foreach ($required in @(
 New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 
-$hostSourceContent = Get-Content -LiteralPath $hostSource -Raw
+$hostSourceContent = Get-Content -LiteralPath $hostSource -Raw -Encoding UTF8
 $hostSourceContent = [regex]::Replace(
   $hostSourceContent,
   '\[assembly: AssemblyVersion\("[^"]+"\)\]',
@@ -271,9 +293,12 @@ $compilerArguments += @(
   "/reference:$SystemRuntimeFacadePath",
   '/reference:System.dll',
   '/reference:System.Core.dll',
+  '/reference:System.Security.dll',
+  '/reference:System.Web.Extensions.dll',
   '/reference:System.Windows.Forms.dll',
   "/out:$hostExecutable",
-  $generatedHostSource
+  $generatedHostSource,
+  $supervisorSource
 )
 $compilerOutput = & $compiler @compilerArguments 2>&1
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hostExecutable -PathType Leaf)) {
@@ -305,17 +330,25 @@ $semanticIconAssetNames = @(
   'web.svg', 'web.png',
   'data.svg', 'data.png',
   'automation.svg', 'automation.png',
-  'lab.svg', 'lab.png'
+  'lab.svg', 'lab.png',
+  'folder.svg', 'folder.png', 'code.svg', 'code.png',
+  'terminal.svg', 'terminal.png', 'database.svg', 'database.png',
+  'document.svg', 'document.png', 'image.svg', 'image.png',
+  'video.svg', 'video.png', 'tools.svg', 'tools.png',
+  'calendar.svg', 'calendar.png', 'settings.svg', 'settings.png'
 )
 $stageFiles = @(
   [pscustomobject]@{ Source = $hostExecutable; Destination = (Join-Path $stageRoot 'WorkspaceWidget.exe') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\WorkspaceWidget.ps1'); Destination = (Join-Path $stageRoot 'app\WorkspaceWidget.ps1') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\WidgetExperience.ps1'); Destination = (Join-Path $stageRoot 'app\WidgetExperience.ps1') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\managed-stop.mjs'); Destination = (Join-Path $stageRoot 'app\managed-stop.mjs') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'app\public-default-state.json'); Destination = (Join-Path $stageRoot 'app\default-state.json') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'assets\workspace-widget.ico'); Destination = (Join-Path $stageRoot 'assets\workspace-widget.ico') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'assets\workspace-widget-logo.png'); Destination = (Join-Path $stageRoot 'assets\workspace-widget-logo.png') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'scripts\Set-WorkspaceWidgetAutostart.ps1'); Destination = (Join-Path $stageRoot 'scripts\Set-WorkspaceWidgetAutostart.ps1') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\INSTALLATION.md'); Destination = (Join-Path $stageRoot 'docs\INSTALLATION.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\USER-GUIDE.md'); Destination = (Join-Path $stageRoot 'docs\USER-GUIDE.md') },
+  [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\SERVER-LIFECYCLE.md'); Destination = (Join-Path $stageRoot 'docs\SERVER-LIFECYCLE.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\MEDIA-CUSTOMIZATION.md'); Destination = (Join-Path $stageRoot 'docs\MEDIA-CUSTOMIZATION.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\ENTERPRISE-DEPLOYMENT.md'); Destination = (Join-Path $stageRoot 'docs\ENTERPRISE-DEPLOYMENT.md') },
   [pscustomobject]@{ Source = (Join-Path $ProjectRoot 'docs\MICROSOFT-STORE-RELEASE.md'); Destination = (Join-Path $stageRoot 'docs\MICROSOFT-STORE-RELEASE.md') },

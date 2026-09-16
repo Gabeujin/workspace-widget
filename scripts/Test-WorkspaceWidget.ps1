@@ -6,7 +6,9 @@ param(
   [string]$StatePath = (Join-Path $env:LOCALAPPDATA 'WorkspaceServiceWidget\state.json'),
   [string]$ShortcutPath = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Workspace Widget.lnk'),
   [switch]$ExerciseAutostart,
-  [switch]$InstalledProduct
+  [switch]$InstalledProduct,
+  [string]$RuntimeStageRoot,
+  [string]$InstalledRoot = (Join-Path $env:LOCALAPPDATA 'Programs\WorkspaceWidget')
 )
 
 Set-StrictMode -Version Latest
@@ -17,6 +19,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 
 $appScript = Join-Path $ProjectRoot 'app\WorkspaceWidget.ps1'
+$experiencePath = Join-Path $ProjectRoot 'app\WidgetExperience.ps1'
 $hostSource = Join-Path $ProjectRoot 'native\WorkspaceWidgetHost.cs'
 $defaultStatePath = Join-Path $ProjectRoot 'app\default-state.json'
 $publicDefaultStatePath = Join-Path $ProjectRoot 'app\public-default-state.json'
@@ -44,6 +47,8 @@ $officialSecurityReview = Join-Path `
 $iconBuilder = Join-Path $ProjectRoot 'scripts\New-WorkspaceWidgetIcon.ps1'
 $semanticIconTest = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetSemanticIcons.ps1'
 $semanticIconManifest = Join-Path $ProjectRoot 'assets\semantic-icons\manifest.json'
+$experienceTest = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetExperience.ps1'
+$registrationV5Test = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetRegistrationV5.ps1'
 $baseBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidget.ps1'
 $msixBuilder = Join-Path $ProjectRoot 'scripts\Build-WorkspaceWidgetMsix.ps1'
 $msixVerifier = Join-Path $ProjectRoot 'scripts\Test-WorkspaceWidgetMsix.ps1'
@@ -63,7 +68,7 @@ $shortcutFixture = Join-Path `
   'shortcut-resolution-fixture.lnk'
 $gitIgnorePath = Join-Path $ProjectRoot '.gitignore'
 $rainmeterIni = Join-Path $env:APPDATA 'Rainmeter\Rainmeter.ini'
-$installedRoot = Join-Path $env:LOCALAPPDATA 'Programs\WorkspaceWidget'
+$installedRoot = [IO.Path]::GetFullPath($InstalledRoot)
 $installedHostPath = Join-Path $installedRoot 'WorkspaceWidget.exe'
 $configuredHostCandidates = [System.Collections.Generic.List[string]]::new()
 if (Test-Path -LiteralPath $ShortcutPath -PathType Leaf) {
@@ -112,8 +117,28 @@ $installedHostPath = @(
     } |
     Select-Object -First 1
 )[0]
+$expectedWidgetHostPaths = @(
+  $configuredHostCandidates |
+    Where-Object {
+      -not [string]::IsNullOrWhiteSpace($_) -and
+      (Test-Path -LiteralPath $_ -PathType Leaf) -and
+      [System.IO.Path]::GetFileName($_) -ieq 'WorkspaceWidget.exe'
+    } |
+    ForEach-Object { [System.IO.Path]::GetFullPath($_) } |
+    Select-Object -Unique
+)
 $runtimeProjectRoot = $ProjectRoot
 $runtimeAppScript = $appScript
+if ($InstalledProduct -and -not [string]::IsNullOrWhiteSpace($RuntimeStageRoot)) {
+  throw 'Choose InstalledProduct or RuntimeStageRoot, not both.'
+}
+if (-not [string]::IsNullOrWhiteSpace($RuntimeStageRoot)) {
+  $runtimeProjectRoot = [IO.Path]::GetFullPath($RuntimeStageRoot)
+  $runtimeAppScript = Join-Path $runtimeProjectRoot 'app\WorkspaceWidget.ps1'
+  if (-not (Test-Path -LiteralPath (Join-Path $runtimeProjectRoot 'WorkspaceWidget.exe') -PathType Leaf)) {
+    throw 'RuntimeStageRoot must contain the built native host.'
+  }
+}
 if ($InstalledProduct) {
   if (
     [string]::IsNullOrWhiteSpace($installedHostPath) -or
@@ -177,6 +202,8 @@ $requiredFiles = @(
   $iconBuilder,
   $semanticIconTest,
   $semanticIconManifest,
+  $experienceTest,
+  $registrationV5Test,
   $baseBuilder,
   $msixBuilder,
   $msixVerifier,
@@ -206,6 +233,8 @@ $publicDefaultState = Get-Content `
   -Raw |
   ConvertFrom-Json
 $runtimeState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+$semanticIconManifestDocument = Get-Content -LiteralPath $semanticIconManifest -Raw | ConvertFrom-Json
+$expectedSemanticIconCount = @($semanticIconManifestDocument.icons).Count
 $probe = & powershell.exe `
   -NoProfile `
   -NonInteractive `
@@ -222,6 +251,30 @@ $semanticIconProbe = & powershell.exe `
   -ExecutionPolicy Bypass `
   -File $semanticIconTest `
   -ProjectRoot $ProjectRoot | ConvertFrom-Json
+$widgetTextFallbackCode = @"
+Set-StrictMode -Version Latest
+. '$($experiencePath.Replace("'", "''"))'
+Remove-Variable -Name state -Scope Script -ErrorAction SilentlyContinue
+`$text = Get-WidgetText 'Settings'
+[pscustomobject]@{ success = (`$text -ceq 'Settings'); text = `$text } | ConvertTo-Json -Compress
+"@
+$widgetTextFallbackEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($widgetTextFallbackCode))
+$widgetTextFallbackProbe = & powershell.exe `
+  -NoProfile `
+  -NonInteractive `
+  -STA `
+  -ExecutionPolicy Bypass `
+  -EncodedCommand $widgetTextFallbackEncoded | ConvertFrom-Json
+$experienceProbe = & powershell.exe `
+  -NoProfile `
+  -NonInteractive `
+  -ExecutionPolicy Bypass `
+  -File $experienceTest | ConvertFrom-Json
+$registrationV5Probe = & powershell.exe `
+  -NoProfile `
+  -NonInteractive `
+  -ExecutionPolicy Bypass `
+  -File $registrationV5Test | ConvertFrom-Json
 $portListener = [System.Net.Sockets.TcpListener]::new(
   [System.Net.IPAddress]::Loopback,
   0
@@ -341,6 +394,8 @@ $malformedStatePath = Join-Path $stateRecoveryRoot 'malformed-state.json'
   ($previousState | ConvertTo-Json -Depth 10),
   [System.Text.UTF8Encoding]::new($false)
 )
+$malformedHashBefore = (Get-FileHash -LiteralPath $malformedStatePath -Algorithm SHA256).Hash
+$malformedPreviousHashBefore = (Get-FileHash -LiteralPath "$malformedStatePath.previous" -Algorithm SHA256).Hash
 $stateRecoveryProbe = & powershell.exe `
   -NoProfile `
   -NonInteractive `
@@ -349,7 +404,10 @@ $stateRecoveryProbe = & powershell.exe `
   -File $appScript `
   -ProjectRoot $ProjectRoot `
   -StatePath $malformedStatePath `
-  -Probe | ConvertFrom-Json
+  -StateLifecycleProbe | ConvertFrom-Json
+$malformedStateProbeExit = $LASTEXITCODE
+$malformedHashAfter = (Get-FileHash -LiteralPath $malformedStatePath -Algorithm SHA256).Hash
+$malformedPreviousHashAfter = (Get-FileHash -LiteralPath "$malformedStatePath.previous" -Algorithm SHA256).Hash
 
 $packageIsolationRoot = Join-Path `
   ([System.IO.Path]::GetTempPath()) `
@@ -599,6 +657,37 @@ public static class WorkspaceWidgetWindowLayerProbe
 $nativeProcesses = @(
   Get-CimInstance Win32_Process -Filter "Name='WorkspaceWidget.exe'" -ErrorAction SilentlyContinue
 )
+$expectedNativeProcesses = @(
+  foreach ($process in $nativeProcesses) {
+    if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) { continue }
+    $nativePath = [System.IO.Path]::GetFullPath([string]$process.ExecutablePath)
+    if (@($expectedWidgetHostPaths | Where-Object {
+      [string]::Equals(
+        [System.IO.Path]::GetFullPath([string]$_),
+        $nativePath,
+        [System.StringComparison]::OrdinalIgnoreCase
+      )
+    }).Count -gt 0) {
+      $process
+    }
+  }
+)
+$expectedNativeUiProcesses = @(
+  foreach ($process in $expectedNativeProcesses) {
+    try {
+      $runtimeProcess = Get-Process -Id $process.ProcessId -ErrorAction Stop
+      if ($runtimeProcess.MainWindowHandle -ne 0) { $process }
+    } catch { }
+  }
+)
+$expectedNativeSupervisors = @(
+  foreach ($process in $expectedNativeProcesses) {
+    try {
+      $runtimeProcess = Get-Process -Id $process.ProcessId -ErrorAction Stop
+      if ($runtimeProcess.MainWindowHandle -eq 0) { $process }
+    } catch { }
+  }
+)
 $legacyProcesses = @(
   Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction SilentlyContinue |
     Where-Object {
@@ -609,8 +698,8 @@ $legacyProcesses = @(
     }
 )
 $processes = @($nativeProcesses) + @($legacyProcesses)
-$expectedWidgetProcessId = if ($processes.Count -eq 1) {
-  [uint32]$processes[0].ProcessId
+$expectedWidgetProcessId = if ($expectedNativeUiProcesses.Count -eq 1) {
+  [uint32]$expectedNativeUiProcesses[0].ProcessId
 } else {
   [uint32]0
 }
@@ -749,21 +838,49 @@ $geometryOnVisibleMonitor = @(
 ).Count -gt 0
 
 $healthTargets = @(
-  $runtimeState.items |
-    Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.health) } |
-    ForEach-Object { [string]$_.health }
+  foreach ($item in @($runtimeState.items)) {
+    $isServer = if ($item.PSObject.Properties.Name -contains 'registrationType') {
+      [string]$item.registrationType -eq 'server'
+    } else {
+      -not [string]::IsNullOrWhiteSpace([string]$item.startupTarget)
+    }
+    if (-not $isServer) { continue }
+    $urls = if ($item.PSObject.Properties.Name -contains 'healthChecks') {
+      @($item.healthChecks | ForEach-Object { [string]$_.url })
+    } else {
+      @([string]$item.health)
+    }
+    $ordinal = 0
+    foreach ($url in $urls) {
+      $ordinal++
+      if ([string]::IsNullOrWhiteSpace($url)) { continue }
+      try {
+        $uri = [uri]$url
+        if (
+          $uri.Scheme -in @('http', 'https') -and
+          ($uri.IsLoopback -or $uri.Host -in @('localhost', '127.0.0.1', '::1'))
+        ) {
+          [pscustomobject]@{ itemId = [string]$item.id; ordinal = $ordinal; url = $uri.AbsoluteUri }
+        }
+      } catch { }
+    }
+  }
 )
-$healthChecks = foreach ($url in $healthTargets) {
+$healthChecks = foreach ($target in $healthTargets) {
   try {
-    $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 3
+    $response = Invoke-WebRequest -Uri $target.url -UseBasicParsing -TimeoutSec 2
     [pscustomobject]@{
-      url = $url
+      itemId = $target.itemId
+      ordinal = $target.ordinal
+      url = $target.url
       online = [int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 400
       statusCode = [int]$response.StatusCode
     }
   } catch {
     [pscustomobject]@{
-      url = $url
+      itemId = $target.itemId
+      ordinal = $target.ordinal
+      url = $target.url
       online = $false
       statusCode = $null
       error = $_.Exception.Message
@@ -799,9 +916,9 @@ $legacyBody = if ($legacyMatch.Success) {
 
 $checks = [ordered]@{
   requiredFiles = @($files | Where-Object { -not $_.exists }).Count -eq 0
-  defaultStateValid = [int]$defaultState.schemaVersion -eq 4 -and
+  defaultStateValid = [int]$defaultState.schemaVersion -in @(4, 5) -and
     $defaultState.PSObject.Properties.Name -contains 'items'
-  runtimeStateValid = [int]$runtimeState.schemaVersion -eq 4 -and
+  runtimeStateValid = [int]$runtimeState.schemaVersion -in @(4, 5) -and
     $runtimeState.PSObject.Properties.Name -contains 'items'
   featureProbe = $probe.success -and
     $probe.supports.dragWindow -and
@@ -827,8 +944,16 @@ $checks = [ordered]@{
     $probe.supports.youtubeHoverPreview
   semanticIconLibrary = $semanticIconProbe.success -and
     [double]$semanticIconProbe.score -ge 99.0 -and
-    [int]$semanticIconProbe.iconCount -eq 8 -and
+    $expectedSemanticIconCount -eq 18 -and
+    [int]$semanticIconProbe.iconCount -eq $expectedSemanticIconCount -and
     @($semanticIconProbe.blockingFailures).Count -eq 0
+  widgetTextStartupFallback = $widgetTextFallbackProbe.success -and
+    $widgetTextFallbackProbe.text -ceq 'Settings'
+  experienceRegression = $experienceProbe.success -and
+    @($experienceProbe.failures).Count -eq 0
+  registrationV5Regression = $registrationV5Probe.success -and
+    [int]$registrationV5Probe.checkCount -eq 16 -and
+    @($registrationV5Probe.failures).Count -eq 0
   lnkTargetResolution = $shortcutProbe.success -and
     $shortcutProbe.kind -eq 'lnk' -and
     $shortcutProbe.shortcutResolved -and
@@ -907,20 +1032,13 @@ $checks = [ordered]@{
     [bool]$packageStartupProbe.processExitedAfterStop -and
     [bool]$packageStartupProbe.trackedRemoved -and
     [string]$packageStartupProbe.health -eq "http://127.0.0.1:$packageStartupProbePort/health"
-  offlineServerRecovery = $appContent -match 'function Queue-NodeServerRecovery' -and
-    $appContent -match 'function Update-ServerRecoveryMenuItem' -and
-    $appContent -match 'function Invoke-ServerLifecycleMenuAction' -and
+  offlineServerRecovery = $appContent -match 'Add-WidgetServerMenuItems -Menu' -and
     $appContent -match 'function Test-TrackedLocalServer' -and
-    $appContent -match "Header 'Check and restart server'" -and
-    $appContent -match "Header 'Configure server restart\.\.\.'" -and
-    $appContent -match '\$MenuItem\.Header = ''Stop server\.\.\.''' -and
-    $appContent -match '\$MenuItem\.Header = if \(\$healthKnown\) \{ ''Restart server'' \}' -and
-    $appContent -match '\$MenuItem\.IsEnabled = \$false' -and
     $appContent -match 'openWhenHealthy = \$OpenWhenHealthy' -and
     $appContent -match 'Stop-TrackedLocalServer -Item \$pendingOpen\.item -ConfirmForce -AllowMissing' -and
-    $appContent -match 'Stop-TrackedLocalServer -Item \$Item -ConfirmForce\)' -and
     $appContent -match 'return \[bool\]\$AllowMissing' -and
-    $appContent -match 'function Stop-ProcessTree' -and
+    $appContent -match 'ManagedServiceClient\]::StopV2Async' -and
+    $appContent -notmatch 'taskkill\.exe' -and
     $appContent -match 'Unsaved server work may be lost'
   productAgnosticServerLifecycle = $appContent -notmatch $productSpecificLifecyclePattern -and
     $installContent -notmatch $productSpecificLifecyclePattern -and
@@ -974,8 +1092,8 @@ $checks = [ordered]@{
     $windowLayerProbe.visible -and
     $windowLayerProbe.topmost -and
     [int64]$windowLayerProbe.owner -eq 0 -and
-    $processes.Count -eq 1 -and
-    [int]$windowLayerProbe.processId -eq [int]$processes[0].ProcessId
+    $expectedNativeUiProcesses.Count -eq 1 -and
+    [int]$windowLayerProbe.processId -eq [int]$expectedNativeUiProcesses[0].ProcessId
   } else {
     $windowLayerProbe.found -and -not $windowLayerProbe.topmost
   }
@@ -1163,7 +1281,7 @@ $checks = [ordered]@{
     $appContent -match 'The original file, application, folder, or URL will not be deleted'
   trayLifecycle = $appContent -match 'System\.Windows\.Forms\.NotifyIcon' -and
     $appContent -match "ToolStripMenuItem\]::new\('Open Workspace'\)" -and
-    $appContent -match "ToolStripMenuItem\]::new\('Exit'\)" -and
+    $appContent -match "ToolStripMenuItem\]::new\('Exit Widget \(servers keep running\)'\)" -and
     $appContent -match 'function Hide-WorkspaceToTray' -and
     $appContent -match 'function Show-WorkspaceFromTray' -and
     $appContent -match 'function Exit-WorkspaceWidget' -and
@@ -1175,18 +1293,20 @@ $checks = [ordered]@{
   persistence = $appContent -match 'Save-State' -and
     $appContent -match '\[System\.IO\.File\]::Replace' -and
     $appContent -match '\$StatePath\.previous' -and
-    $appContent -match '\[int\]\$candidateState\.schemaVersion -gt 4' -and
+    $appContent -match '\[int\]\$candidateState\.schemaVersion -gt 5' -and
     $appContent -match 'LocationChanged' -and
     $appContent -match 'SizeChanged'
-  stateRecoveryFallback = [bool]$stateRecoveryProbe.success -and
-    [int]$stateRecoveryProbe.schemaVersion -eq 4 -and
-    [int]$stateRecoveryProbe.itemCount -eq 0 -and
-    [string]$stateRecoveryProbe.stateSourcePath -eq "$malformedStatePath.previous"
+  malformedStateFailClosed = $malformedStateProbeExit -eq 3 -and
+    -not [bool]$stateRecoveryProbe.success -and
+    [int]$stateRecoveryProbe.exitCode -eq 3 -and
+    [string]$stateRecoveryProbe.error -match 'existing state is invalid and was left unchanged' -and
+    $malformedHashBefore -eq $malformedHashAfter -and
+    $malformedPreviousHashBefore -eq $malformedPreviousHashAfter
   futureStateFailClosed = $futureStateProbeExit -ne 0 -and
     $futureStateProbeExit -eq 3 -and
     -not [bool]$futureStateProbe.success -and
     [int]$futureStateProbe.exitCode -eq 3 -and
-    [string]$futureStateProbe.error -match 'newer than the supported schema 4' -and
+    [string]$futureStateProbe.error -match 'newer than the supported schema 5' -and
     $futureStateHashBefore -eq $futureStateHashAfter -and
     $futurePreviousHashBefore -eq $futurePreviousHashAfter -and
     $appContent -match 'catch \[System\.NotSupportedException\]'
@@ -1203,7 +1323,7 @@ $checks = [ordered]@{
     @($iconFrames | Where-Object { $_.width -eq 256 }).Count -eq 1
   cleanContextMenuTemplate = $appContent -match 'TargetType="\{x:Type MenuItem\}"' -and
     $appContent -match 'FocusVisualStyle = \$null'
-  widgetRunning = $processes.Count -eq 1
+  widgetRunning = $expectedNativeUiProcesses.Count -eq 1
   taskExists = $null -ne $task -and $autostartStatus.exists
   taskConfigured = $autostartStatus.configured -and
     $autostartStatus.state -in @('Enabled', 'Disabled')
@@ -1233,6 +1353,8 @@ $checks = [ordered]@{
   healthProbeReportsAvailability = @($healthChecks).Count -eq @($healthTargets).Count -and
     @($healthChecks | Where-Object {
         [string]::IsNullOrWhiteSpace([string]$_.url) -or
+        [string]::IsNullOrWhiteSpace([string]$_.itemId) -or
+        [int]$_.ordinal -lt 1 -or
         $_.PSObject.Properties.Name -notcontains 'online'
       }).Count -eq 0
   healthTargetsFromState = @($healthChecks).Count -eq @($healthTargets).Count
@@ -1248,6 +1370,8 @@ $failed = @($checks.GetEnumerator() | Where-Object { -not $_.Value })
   checks = $checks
   probe = $probe
   semanticIconProbe = $semanticIconProbe
+  experienceProbe = $experienceProbe
+  registrationV5Probe = $registrationV5Probe
   startupProbe = $startupProbe
   packageStartupProbe = $packageStartupProbe
   shortcutProbe = $shortcutProbe
@@ -1257,10 +1381,13 @@ $failed = @($checks.GetEnumerator() | Where-Object { -not $_.Value })
   autostartRoundTrip = $autostartRoundTrip
   iconFrames = $iconFrames
   health = $healthChecks
-  process = if ($processes.Count -gt 0) {
+  process = if ($expectedNativeUiProcesses.Count -gt 0) {
     [pscustomobject]@{
-      processId = [int]$processes[0].ProcessId
-      commandLine = [string]$processes[0].CommandLine
+      processId = [int]$expectedNativeUiProcesses[0].ProcessId
+      executablePath = [string]$expectedNativeUiProcesses[0].ExecutablePath
+      expectedHostPaths = @($expectedWidgetHostPaths)
+      visibleUiCount = $expectedNativeUiProcesses.Count
+      supervisorCount = $expectedNativeSupervisors.Count
     }
   } else {
     $null

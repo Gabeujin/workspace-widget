@@ -17,6 +17,76 @@
   },
   "icons": [
     {
+      "id": "folder",
+      "name": "Folder",
+      "description": "A folder or file collection.",
+      "svg": "folder.svg",
+      "png": "folder.png"
+    },
+    {
+      "id": "code",
+      "name": "Code",
+      "description": "Source code or a developer project.",
+      "svg": "code.svg",
+      "png": "code.png"
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal",
+      "description": "A command line or shell tool.",
+      "svg": "terminal.svg",
+      "png": "terminal.png"
+    },
+    {
+      "id": "database",
+      "name": "Database",
+      "description": "A database or structured store.",
+      "svg": "database.svg",
+      "png": "database.png"
+    },
+    {
+      "id": "document",
+      "name": "Document",
+      "description": "A document, note, or report.",
+      "svg": "document.svg",
+      "png": "document.png"
+    },
+    {
+      "id": "image",
+      "name": "Image",
+      "description": "An image or visual asset.",
+      "svg": "image.svg",
+      "png": "image.png"
+    },
+    {
+      "id": "video",
+      "name": "Video",
+      "description": "A video or playback destination.",
+      "svg": "video.svg",
+      "png": "video.png"
+    },
+    {
+      "id": "tools",
+      "name": "Tools",
+      "description": "Utilities, maintenance, or configuration tools.",
+      "svg": "tools.svg",
+      "png": "tools.png"
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar",
+      "description": "A schedule, date, or recurring plan.",
+      "svg": "calendar.svg",
+      "png": "calendar.png"
+    },
+    {
+      "id": "settings",
+      "name": "Settings",
+      "description": "Preferences or application settings.",
+      "svg": "settings.svg",
+      "png": "settings.png"
+    },
+    {
       "id": "launch",
       "name": "Launch",
       "description": "Open an application, file, folder, or URL.",

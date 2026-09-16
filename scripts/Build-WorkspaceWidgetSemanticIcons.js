@@ -30,7 +30,17 @@ async function main() {
     'web',
     'data',
     'automation',
-    'lab'
+    'lab',
+    'folder',
+    'code',
+    'terminal',
+    'database',
+    'document',
+    'image',
+    'video',
+    'tools',
+    'calendar',
+    'settings'
   ];
 
   if (manifest.schemaVersion !== 1) fail('unsupported manifest schema.');

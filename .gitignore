@@ -73,6 +73,8 @@ packaging/partnerCT data injection/
 # Private workstation screenshots, scan output, and recovery evidence
 quality/
 design/
+# Local KGJ evidence contract references the private design workspace above.
+/kgj.design.json
 design-qa.md
 diagnostics/
 skin/
