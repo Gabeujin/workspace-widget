@@ -1,5 +1,39 @@
 # Public Release Review
 
+## Current 0.2.0 candidate — 2026-09-16
+
+This is an unsigned development candidate, not a certified Microsoft Store
+download. The current source separates ordinary shortcuts from managed servers,
+supports one to sixteen ordered health checks, includes eighteen semantic icons,
+and unifies Korean/English settings and appearance editing. Full and MIN layouts
+share opacity and use interruptible, explicit-target bounds transitions.
+
+Current local evidence includes production-WPF appearance tests (63 assertions),
+motion integration (47 assertions), sampled shared-opacity/transition tests,
+direct and package-script startup/health/graceful-stop integration, and installed
+readback preserving user registrations and running supervisors. These tests have
+bounded scopes; they do not prove a 90 Hz compositor rate, mixed-DPI physical
+monitor interaction, or a Store-signed package lifecycle.
+
+The runtime inputs are Node.js 24.21.0 LTS, npm 11.19.0 and WebView2 SDK
+1.0.4191.47. The checksum-pinned inputs and dated official-security receipt are
+checked by the build/test workflow. The older versions and counts below belong
+to the archived 0.1.0 review, not the current candidate.
+
+At this review boundary, hosted CI startup diagnosis, an exact clean-source
+Store package, and its candidate-specific certification evidence remain open.
+The KGJ project doctor reports HOLD (draft contract and incomplete typed native
+evidence); no independently derived 9.9 score is claimed. Public source-only
+release candidates can document these limitations, but unsigned executable
+packages must not be presented as supported public downloads.
+
+The final package receipt and CI run must identify the actual release source
+revision. Previous WACK and malware results below cannot be inherited by a new
+MSIX. Partner Center submission/certification remains a separate human-account
+workflow; generating a submission candidate does not perform that workflow.
+
+## Archived 0.1.0 evidence
+
 Review date: 2026-08-26
 Candidate: 0.1.0, Windows 11 x64
 

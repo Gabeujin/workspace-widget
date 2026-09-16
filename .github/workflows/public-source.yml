@@ -125,6 +125,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw 'Bounded supervisor failure diagnostics failed.'
           }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\Test-WorkspaceWidgetDescriptorEncoding.ps1 `
+            -HostPath (Join-Path $buildResult.stageRoot 'WorkspaceWidget.exe')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Supervisor descriptor encoding verification failed.'
+          }
           $listener = [System.Net.Sockets.TcpListener]::new(
             [System.Net.IPAddress]::Loopback,
             0

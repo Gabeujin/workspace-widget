@@ -177,3 +177,31 @@ native interaction, multi-monitor, clean-install or public release claim.
   another fresh directory with the same preservation checks. A bounded independent
   source review found no P1/P2 defect in the new editor/integration; physical file
   picker interaction and real media-decoder failures remain outside this fixture.
+
+### Hosted startup diagnosis
+
+- Hosted CI repeated an opaque pre-authentication supervisor exit, while the
+  same packaged direct-Node and npm-project startup/health/graceful-stop probes
+  passed locally. This is not treated as a harmless CI-only failure.
+- Preserve authenticated ownership as the only startup authority. Add a bounded
+  4 KiB diagnostic capture, then drain/discard remaining output. Expose only a
+  fixed failure stage, exit code and native error code after that launched host
+  exits; raw exception text, commands and paths are not propagated.
+- Twelve diagnostic tests verify sanitization, identity/shape rejection and
+  bounded incomplete/faulted reads. Thirty-seven launch-boundary tests remain
+  passing. The instrumented hosted run determines the next corrective action.
+- Instrumented run `35050318142` isolated the failure to descriptor parsing,
+  before launch-contract, console, job or process launch. The same failure was
+  reproduced locally with candidate 13 under a UTF-8-preamble console input
+  encoding. Framework redirected stdin inherits the parent encoding/preamble.
+- Candidate 15 avoids process-global encoding changes: serialize non-ASCII
+  descriptor characters as JSON Unicode escapes, accept only an optional UTF-8
+  preamble, strictly decode the bounded raw pipe and reject malformed input.
+  CR bytes count toward the input bound. Direct Node and package-script probes
+  both passed health/token checks and graceful cleanup; all 37 launch-boundary
+  checks passed again. Existing user servers were not restarted for these tests.
+- Twenty compiled descriptor regression assertions pass: exact Korean JSON
+  round-trip, UTF-8 with/without preamble, ASCII through CP949, rejection of
+  UTF-16/32 and malformed bytes, CR-flood bounds and the exact 64 KiB limit.
+  The broader lifecycle suite reached a separate crash-recovery restart failure;
+  that remains under diagnosis and is not reported as passing.

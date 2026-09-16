@@ -5,7 +5,7 @@
 [Product site](https://gabeujin.github.io/workspace-widget/) ·
 [Privacy](https://gabeujin.github.io/workspace-widget/privacy/) ·
 [Support](https://gabeujin.github.io/workspace-widget/support/) ·
-[Source-only RC](https://github.com/Gabeujin/workspace-widget/releases/tag/v0.1.0-rc.1)
+[Releases](https://github.com/Gabeujin/workspace-widget/releases)
 
 Workspace Widget is a movable Windows 11 launcher for local web apps,
 applications, files, folders, and URLs. It runs as the branded
@@ -26,8 +26,12 @@ packages are unsigned and must never be presented as public downloads.
   entry never deletes the original app, file, folder, or shortcut.
 - Show `Port ####` for URLs with an explicit port and poll an optional health
   endpoint every 30 seconds.
+- Register each entry explicitly as either an **Ordinary shortcut** or a
+  **Local server**. Ordinary shortcuts never receive server lifecycle actions;
+  a local server requires start and stop scripts plus 1 through 16 ordered
+  loopback health checks.
 - Start a trusted local server from a Node project, JavaScript entry, or
-  PowerShell entry, wait for its configured health checks, and open it when
+  PowerShell entry, wait for every configured health check, and open it when
   ready.
 - Treat every configured local server through the same product-agnostic
   `startup target + arguments + working directory + ordered loopback health
@@ -36,6 +40,10 @@ packages are unsigned and must never be presented as public downloads.
   smooth scrolling, free move/resize, opacity and hover brightness, **Always on
   top**, and a 96 px edge-snapped **MIN UI** mode.
 - Choose Midnight, Neon, Sakura, Monochrome, or fully custom colors.
+- Use one localized **Settings** window with **General** and **Appearance &
+  media** tabs. Korean and English use the same settings surface and a shared
+  widget opacity; appearance/media edits apply only when **Apply** is chosen
+  and can be discarded with **Cancel**.
 - Use a local image, animated GIF, video, bounded public HTTPS static image, or
   YouTube poster as a background. Each shortcut may have its own icon and hover
   media; YouTube hover playback uses the privacy-enhanced embed domain through
@@ -85,11 +93,14 @@ Center account, registration, and submission steps are in
 Open **Add shortcut** and enter:
 
 - **URL or local path**, for example `http://127.0.0.1:43100/`;
-- select **Local server**, then add one or more loopback **Health checks**, such
-  as `http://127.0.0.1:43100/health`;
+- select **Local server**, then add 1 through 16 ordered loopback **Health
+  checks**, such as `http://127.0.0.1:43100/health`;
 - a trusted **Start script**: `.js`, `.mjs`, `.cjs`, or `.ps1`, or a directory
   with `package.json`, plus its arguments or package-script name; and
 - a trusted JavaScript or PowerShell **Stop script** and its arguments.
+
+Choose **Ordinary shortcut** for a target that does not need Widget-managed
+start, stop, or health checking. It has no server actions.
 
 If health is offline, clicking the card starts the configured target, waits up
 to 30 seconds, and opens the URL after health succeeds. Only configure code and

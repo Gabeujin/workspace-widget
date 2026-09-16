@@ -31,6 +31,7 @@ namespace WorkspaceWidget.Native
         private const int HealthProbeDeadlineMilliseconds = 1500;
         private const int MaximumSupervisorDiagnosticBytes = 4096;
         private static readonly JavaScriptSerializer Json = CreateSerializer();
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
         public static string Start(
             string hostPath,
@@ -659,7 +660,18 @@ namespace WorkspaceWidget.Native
                 descriptor["capability"] = Convert.ToBase64String(capability);
                 descriptor["startupDelayMilliseconds"] = startupDelayMilliseconds;
                 string descriptorJson = Json.Serialize(descriptor);
-                if (Encoding.UTF8.GetByteCount(descriptorJson) > MaximumMessageBytes)
+                int descriptorUtf8Bytes;
+                try { descriptorUtf8Bytes = StrictUtf8.GetByteCount(descriptorJson); }
+                catch (EncoderFallbackException)
+                {
+                    throw new InvalidOperationException("The lifecycle descriptor contains malformed Unicode.");
+                }
+                if (descriptorUtf8Bytes > MaximumMessageBytes)
+                {
+                    throw new InvalidOperationException("The lifecycle descriptor is too large.");
+                }
+                string descriptorWireJson = EscapeDescriptorForAsciiWire(descriptorJson);
+                if (descriptorWireJson.Length > MaximumMessageBytes)
                 {
                     throw new InvalidOperationException("The lifecycle descriptor is too large.");
                 }
@@ -673,6 +685,9 @@ namespace WorkspaceWidget.Native
                 start.RedirectStandardInput = true;
                 start.RedirectStandardOutput = true;
                 start.RedirectStandardError = true;
+                // The descriptor contains ASCII JSON only.  It therefore crosses
+                // normal Windows console code pages unchanged without changing the
+                // process-wide Console.InputEncoding state.
                 Process supervisor = Process.Start(start);
                 if (supervisor == null)
                 {
@@ -686,7 +701,7 @@ namespace WorkspaceWidget.Native
                 Task<string> supervisorOutput = ReadBoundedSupervisorDiagnostic(
                     supervisor.StandardOutput.BaseStream);
                 DrainUntrustedOutput(supervisor.StandardError.BaseStream);
-                supervisor.StandardInput.WriteLine(descriptorJson);
+                supervisor.StandardInput.WriteLine(descriptorWireJson);
                 supervisor.StandardInput.Flush();
                 supervisor.StandardInput.Close();
                 Stopwatch startupWatch = Stopwatch.StartNew();
@@ -1128,6 +1143,25 @@ namespace WorkspaceWidget.Native
                 "; nativeError=" + nativeError.ToString(CultureInfo.InvariantCulture) + ").";
         }
 
+        private static string EscapeDescriptorForAsciiWire(string descriptorJson)
+        {
+            StringBuilder escaped = new StringBuilder(descriptorJson.Length);
+            for (int index = 0; index < descriptorJson.Length; index++)
+            {
+                char value = descriptorJson[index];
+                if (value <= 0x7f)
+                {
+                    escaped.Append(value);
+                }
+                else
+                {
+                    escaped.Append("\\u");
+                    escaped.Append(((int)value).ToString("X4", CultureInfo.InvariantCulture));
+                }
+            }
+            return escaped.ToString();
+        }
+
         private static JavaScriptSerializer CreateSerializer()
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
@@ -1146,6 +1180,7 @@ namespace WorkspaceWidget.Native
             MaxJsonLength = MaximumMessageBytes,
             RecursionLimit = 12
         };
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
         public static int Run(string instanceId)
         {
@@ -1158,7 +1193,8 @@ namespace WorkspaceWidget.Native
                 {
                     throw new ArgumentException("The lifecycle instance identifier is invalid.");
                 }
-                string descriptorLine = ReadBoundedLine(Console.In, MaximumMessageBytes);
+                string descriptorLine = ReadBoundedUtf8Descriptor(Console.OpenStandardInput(),
+                    MaximumMessageBytes);
                 Dictionary<string, object> descriptor = LifecycleJson.Parse(descriptorLine);
                 RequireDescriptor(descriptor, instanceId);
                 startupStage = "launch-contract";
@@ -1579,21 +1615,40 @@ namespace WorkspaceWidget.Native
             }
         }
 
-        private static string ReadBoundedLine(TextReader reader, int maximumBytes)
+        private static string ReadBoundedUtf8Descriptor(Stream stream, int maximumBytes)
         {
-            StringBuilder value = new StringBuilder();
+            List<byte> bytes = new List<byte>();
+            int wireBytes = 0;
             while (true)
             {
-                int character = reader.Read();
-                if (character < 0 || character == '\n') { break; }
-                if (character != '\r') { value.Append((char)character); }
-                if (Encoding.UTF8.GetByteCount(value.ToString()) > maximumBytes)
+                int value = stream.ReadByte();
+                if (value < 0 || value == 0x0a) { break; }
+                wireBytes++;
+                // Include a possible UTF-8 BOM and the one CR from WriteLine in
+                // the raw cap; never permit a CR flood to evade it.
+                if (wireBytes > maximumBytes + 5)
                 {
                     throw new InvalidOperationException("The lifecycle descriptor is too large.");
                 }
+                bytes.Add((byte)value);
             }
-            if (value.Length == 0) { throw new InvalidOperationException("The lifecycle descriptor was empty."); }
-            return value.ToString();
+            if (bytes.Count > 0 && bytes[bytes.Count - 1] == 0x0d) { bytes.RemoveAt(bytes.Count - 1); }
+            int offset = 0;
+            if (bytes.Count >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf)
+            {
+                offset = 3;
+            }
+            int length = bytes.Count - offset;
+            if (length == 0) { throw new InvalidOperationException("The lifecycle descriptor was empty."); }
+            if (length > maximumBytes)
+            {
+                throw new InvalidOperationException("The lifecycle descriptor is too large.");
+            }
+            try { return StrictUtf8.GetString(bytes.ToArray(), offset, length); }
+            catch (DecoderFallbackException)
+            {
+                throw new InvalidOperationException("The lifecycle descriptor encoding is invalid.");
+            }
         }
     }
 

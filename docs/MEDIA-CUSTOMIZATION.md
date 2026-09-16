@@ -12,7 +12,9 @@ video is intentionally rejected.
 
 ## Open appearance settings
 
-Open **Settings > Appearance & media...**.
+Open **Settings > Appearance & media**. Settings has **General** and
+**Appearance & media** tabs in both Korean and English; it is one window, not
+a separate legacy appearance dialog.
 
 The current presets are:
 
@@ -56,6 +58,12 @@ In **Appearance & media**:
 2. choose the background-media opacity from 5 to 100 percent;
 3. choose whether background video is muted; and
 4. select **Apply**.
+
+The Appearance & media page is a draft. **Apply** validates and saves its
+theme, colors, media, opacity, and mute settings together. **Cancel**, closing
+the Settings window, or switching tabs does not apply unfinished appearance
+edits. Widget opacity is a single shared setting across full and MIN UI modes;
+it is configured on the General tab.
 
 Select **Clear media** and then **Apply** to return to the theme-only
 background.
