@@ -80,6 +80,7 @@ jobs:
             'Test-WorkspaceWidgetMenuLocalization.ps1',
             'Test-WorkspaceWidgetFeedbackLocalization.ps1',
             'Test-WorkspaceWidgetDialogLocalization.ps1',
+            'Test-WorkspaceWidgetFooterLocalization.ps1',
             'Test-WorkspaceWidgetUpgradeProcessGate.ps1',
             'Test-WorkspaceWidgetRepairSafety.ps1',
             'Test-WorkspaceWidgetStateV5Migration.ps1',

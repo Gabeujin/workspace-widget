@@ -19,9 +19,11 @@ not be offered as public downloads.
 ## Current 0.2.0 boundary
 
 The current candidate is tracked in [the public release review](../PUBLIC-RELEASE-REVIEW.md)
-and [the modernization worklog](MODERNIZATION-WORKLOG.md). Its final hosted
-lifecycle gate, exact-source package, candidate-specific certification-kit and
-malware checks, final installed readback, and new source-only release are pending.
+and [the modernization worklog](MODERNIZATION-WORKLOG.md). Hosted lifecycle run
+`35053951038` passed. Each later source revision requires fresh CI, exact-source
+package verification, certification-kit and malware checks, and installed
+readback before its source-only release. Final results belong to the release
+notes and the local package handoff receipt, bound to that release revision.
 The completed rows and quality score in the archived sections below describe
 the 0.1.0 evidence only; they do not certify 0.2.0 or replace the current KGJ
 evidence gate, which remains HOLD. No unsigned binary is a supported public download.

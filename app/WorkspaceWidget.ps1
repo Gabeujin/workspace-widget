@@ -8208,7 +8208,7 @@ $xaml = @'
           </Grid.ColumnDefinitions>
           <Button
             x:Name="AddShortcutButton"
-            Content="+  Add shortcut"
+            Content="+ Add shortcut"
             Padding="11,7"
             Foreground="#FF74AEFF"
             Background="Transparent"
@@ -8735,6 +8735,9 @@ function Set-WidgetModeVisualState {
   }
   if($script:minUiModeCheck.IsChecked -ne $Enabled){$script:minUiModeCheck.IsChecked=$Enabled}
   Set-WidgetLocalizedTree $script:toolbar
+  Set-WidgetLocalizedTree $script:footer
+  $addShortcutButtonVariable=Get-Variable -Name addShortcutButton -Scope Script -ErrorAction SilentlyContinue
+  if($null -ne $addShortcutButtonVariable){Set-WidgetLocalizedTree $addShortcutButtonVariable.Value}
   Update-ResponsiveHeader
 }
 

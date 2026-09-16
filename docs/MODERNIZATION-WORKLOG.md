@@ -236,3 +236,10 @@ native interaction, multi-monitor, clean-install or public release claim.
 - Korean primary-flow review additionally localized registration validation,
   deletion and verified force-stop dialogs, retaining the default-No consent and
   unsaved-work warning. The dialog template/AST regression passes 66 checks.
+- Hosted run `35053951038` passed all gates with the console-isolated helper.
+  A clean-source MSIX then passed 15 package checks, WACK overall (with the
+  optional Windows S-mode blocked-executable advisory), and ESET with zero
+  detections. A later source change requires a new exact-package verification.
+- Final language review separately addresses the full-mode footer label.
+  Manually selected opacity is preserved across upgrades; a deliberate preference
+  change must not be classified as a transition failure or silently reverted.

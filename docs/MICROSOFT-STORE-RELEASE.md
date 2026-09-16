@@ -41,7 +41,7 @@ file out of public commits until it has been reviewed, and pass it to the build:
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\Build-WorkspaceWidgetMsix.ps1 `
   -Version 0.2.0 `
-  -PackageVersion 1.0.0.0 `
+  -PackageVersion 1.0.1.0 `
   -IdentityFile C:\secure-local-config\workspace-widget-store-identity.json `
   -CompilerPath C:\path\to\Roslyn\csc.exe `
   -OutputRoot C:\WorkspaceWidgetStoreBuild\0.2.0 `
@@ -61,10 +61,11 @@ route: Microsoft re-signs the accepted package. Do not distribute that
 unsigned pre-submission file directly.
 
 The product release label is `0.2.0`, while the Store package identity
-version is `1.0.0.0`. Windows 10/11 Store package versions require a nonzero
+version is `1.0.1.0`. Before submission, confirm that it exceeds the highest
+version previously uploaded in Partner Center. Windows 10/11 Store package versions require a nonzero
 first segment and reserve the fourth segment as `0`; the build and verifier fail
 closed when this rule is not satisfied. Store candidates use the package version
-in the file name, for example `WorkspaceWidget-1.0.0.0-x64.msix`. See Microsoft's
+in the file name, for example `WorkspaceWidget-1.0.1.0-x64.msix`. See Microsoft's
 [MSIX app package requirements](https://learn.microsoft.com/windows/apps/publish/publish-your-app/msix/app-package-requirements).
 
 Verify the exact package and receipt before WACK or upload:

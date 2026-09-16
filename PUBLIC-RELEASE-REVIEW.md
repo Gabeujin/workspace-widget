@@ -20,8 +20,13 @@ The runtime inputs are Node.js 24.21.0 LTS, npm 11.19.0 and WebView2 SDK
 checked by the build/test workflow. The older versions and counts below belong
 to the archived 0.1.0 review, not the current candidate.
 
-At this review boundary, hosted CI startup diagnosis, an exact clean-source
-Store package, and its candidate-specific certification evidence remain open.
+Hosted CI run `35053951038` passed the startup and lifecycle gates after the
+noninteractive stop-helper console isolation fix. The subsequent final release
+must pass CI again and carry its own exact-source package receipts. A prior
+0.2.0 candidate passed all 15 package checks, WACK overall, and a no-clean ESET
+scan with zero detections; these results are not inherited by changed packages.
+WACK's optional blocked-executable advisory reflects the application's explicit
+local process-launch functionality: Windows S mode is not supported.
 The KGJ project doctor reports HOLD (draft contract and incomplete typed native
 evidence); no independently derived 9.9 score is claimed. Public source-only
 release candidates can document these limitations, but unsigned executable
